@@ -31,9 +31,9 @@ void main() {
         today: DateTime(2026, 2, 10),
       );
 
-      expect(message, contains('Overdue interest: ₹400'));
-      expect(message, contains('Due date: 05-02-2026'));
-      expect(message, contains('Amount due now: *₹400*'));
+      expect(message, contains('Overdue interest: ₹200'));
+      expect(message, contains('Due date: 09-02-2026'));
+      expect(message, contains('Amount due now: *₹200*'));
       expect(message, isNot(contains('Total outstanding')));
     });
 
@@ -71,8 +71,8 @@ void main() {
       expect(message, contains('Jan 2026 · ₹200'));
       expect(message, contains('*Unpaid Interest Months*'));
       expect(message, contains('Feb 2026 · due ₹150 · paid ₹50'));
-      expect(message, contains('Interest outstanding: ₹150'));
-      expect(message, contains('Total outstanding: *₹10,150*'));
+      expect(message, isNot(contains('Interest outstanding')));
+      expect(message, contains('Total outstanding: *₹10,000*'));
     });
 
     test('zero-interest statement hides all interest fields', () {
@@ -89,7 +89,7 @@ void main() {
       expect(message, isNot(contains('Interest Months')));
     });
 
-    test('active total includes unpaid interest that is not due yet', () {
+    test('active total prorates interest that is not due yet', () {
       final currentLoan = loan(
         interestStartDate: DateTime(2026, 3, 1),
       );
@@ -107,8 +107,8 @@ void main() {
       );
 
       expect(reminder, contains('Amount due now: *₹0*'));
-      expect(statement, contains('Interest outstanding: ₹200'));
-      expect(statement, contains('Total outstanding: *₹10,200*'));
+      expect(statement, contains('Interest outstanding: ₹12.90'));
+      expect(statement, contains('Total outstanding: *₹10,012.90*'));
     });
 
     test('reminder adjusts for partial and completed zero-interest loans', () {

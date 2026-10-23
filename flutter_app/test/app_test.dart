@@ -65,7 +65,8 @@ void main() {
     expect(loan.phone, '9876543210');
     expect(loan.payments, hasLength(1));
     expect(loan.payments.single.type, 'interest');
-    expect(loan.payments.single.amount, 200);
+    expect(loan.payments.single.amount, greaterThan(0));
+    expect(loan.payments.single.amount, lessThan(200));
   });
 
   testWidgets('premium navigation and interest calculator work',
@@ -92,6 +93,12 @@ void main() {
 
     await tester.tap(find.text('முகப்பு'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('கணக்கீடு'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('கணக்கீடு'));
     await tester.pumpAndSettle();
 
@@ -104,6 +111,11 @@ void main() {
 
     expect(find.text('₹600'), findsOneWidget);
     expect(find.text('மொத்த தொகை: ₹10,600'), findsOneWidget);
+
+    await tester.tap(find.text('தேதிகள்'));
+    await tester.pumpAndSettle();
+    expect(find.text('தொடக்க தேதி'), findsOneWidget);
+    expect(find.text('முடிவு தேதி'), findsOneWidget);
   });
 
   testWidgets('creates and lists an interest-free loan separately',
@@ -204,6 +216,46 @@ void main() {
     expect(find.text('வட்டி வசூல் விகிதம்'), findsOneWidget);
     expect(find.text('வட்டி நிலுவை காலப் பகுப்பு'), findsOneWidget);
     expect(find.text('குமார்'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('people with one loan open the redesigned detail page directly',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final loan = Loan(
+      id: 'direct-person-loan',
+      direction: 'given',
+      person: 'Perumal Sasi',
+      phone: '9566455321',
+      principal: 200000,
+      rate: 2,
+      dueDay: 5,
+      startDate: DateTime(2026, 8, 1),
+      note: 'Direct detail flow',
+      payments: const [],
+    );
+    secureData[SecureDataStore.loansKey] = jsonEncode([loan.toJson()]);
+
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.people_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Perumal Sasi'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('கணக்கு சுருக்கம்'), findsOneWidget);
+    expect(find.text('செலுத்தல் பதிவு'), findsOneWidget);
+    expect(find.text('1 loan accounts'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.text('மாதாந்திர வட்டி கணக்கு'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('முக்கிய தேதிகள்'), findsOneWidget);
+    expect(find.text('மாதாந்திர வட்டி கணக்கு'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   });

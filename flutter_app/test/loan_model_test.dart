@@ -138,8 +138,8 @@ void main() {
       );
 
       final today = DateTime(2026, 10, 23);
-      expect(loan.overdueInterest(today: today), 400);
-      expect(loan.overdueMonthCount(today: today), 4);
+      expect(loan.overdueInterest(today: today), 300);
+      expect(loan.overdueMonthCount(today: today), 3);
       expect(loan.oldestUnpaidMonth(today: today, dueOnly: true), '2026-07');
     });
 
@@ -202,7 +202,7 @@ void main() {
 
       final restoredOldLoan = Loan.fromJson(oldData);
       expect(restoredOldLoan.interestStartDate, DateTime(2026, 1, 10));
-      expect(restoredOldLoan.firstInterestDueDate, DateTime(2026, 2, 5));
+      expect(restoredOldLoan.firstInterestDueDate, DateTime(2026, 2, 9));
 
       final updatedLoan = Loan(
         id: 'new-loan',
@@ -240,8 +240,8 @@ void main() {
         payments: const [],
       );
 
-      expect(loan.statusFor('2026-01').dueDate, DateTime(2026, 2, 15));
-      expect(loan.statusFor('2026-02').dueDate, DateTime(2026, 2, 28));
+      expect(loan.statusFor('2026-01').dueDate, DateTime(2026, 2, 19));
+      expect(loan.statusFor('2026-02').dueDate, DateTime(2026, 3, 19));
     });
 
     test('editing freezes paid periods and recalculates unpaid periods', () {
@@ -281,7 +281,7 @@ void main() {
       expect(edited.payments, hasLength(1));
       expect(edited.statusFor('2026-01').expected, 200);
       expect(edited.statusFor('2026-01').remaining, 150);
-      expect(edited.statusFor('2026-01').dueDate, DateTime(2026, 1, 5));
+      expect(edited.statusFor('2026-01').dueDate, DateTime(2026, 1, 31));
       expect(edited.interestForMonth('2026-02'), 300);
     });
 
@@ -322,6 +322,33 @@ void main() {
       expect(restored.interestOutstanding(today: DateTime(2026, 3, 1)), 150);
       expect(restored.payments, hasLength(1));
       expect(restored.interestPeriodSnapshots, contains('2026-01'));
+    });
+
+    test('adds full interest only after a complete month', () {
+      final loan = Loan(
+        id: 'full-month-cycle',
+        direction: 'given',
+        person: 'Perumal',
+        principal: 200000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 8, 1),
+        interestStartDate: DateTime(2026, 8, 1),
+        firstInterestDueDate: DateTime(2026, 8, 31),
+        note: '',
+        payments: const [],
+      );
+
+      expect(loan.overdueInterest(today: DateTime(2026, 8, 23)), 0);
+      expect(
+        loan.accruedInterest(today: DateTime(2026, 8, 23)),
+        closeTo(4000 * 23 / 31, .01),
+      );
+      expect(loan.statusFor('2026-08').dueDate, DateTime(2026, 8, 31));
+      expect(loan.statusFor('2026-09').dueDate, DateTime(2026, 9, 30));
+      expect(loan.statusFor('2026-10').dueDate, DateTime(2026, 10, 31));
+      expect(loan.overdueInterest(today: DateTime(2026, 10, 23)), 8000);
+      expect(loan.overdueMonthCount(today: DateTime(2026, 10, 23)), 2);
     });
   });
 }

@@ -238,9 +238,7 @@ class LoanShareMessageBuilder {
   }
 
   static double _unpaidInterest(Loan loan, DateTime now) =>
-      loan.monthsThrough(now).fold<double>(0, (sum, month) {
-        return sum + loan.statusFor(month, today: now).remaining;
-      });
+      loan.accruedInterest(today: now);
 
   static double _shareTotal(Loan loan, DateTime now) =>
       loan.outstanding + _unpaidInterest(loan, now);

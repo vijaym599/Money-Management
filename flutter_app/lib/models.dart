@@ -115,11 +115,7 @@ class Loan {
     Map<String, InterestPeriodSnapshot> interestPeriodSnapshots = const {},
   })  : interestStartDate = interestStartDate ?? startDate,
         firstInterestDueDate = firstInterestDueDate ??
-            _scheduledDueDate(
-              _monthKey(interestStartDate ?? startDate),
-              dueDay,
-              interestStartDate ?? startDate,
-            ),
+            _interestPeriodCompletionDate(interestStartDate ?? startDate),
         interestPeriodSnapshots = Map.unmodifiable(interestPeriodSnapshots);
 
   final String id;
@@ -237,6 +233,33 @@ class Loan {
   double interestOutstanding({DateTime? today}) =>
       overdueInterest(today: today);
 
+  /// Interest payable when the account is settled on [today]. Completed
+  /// periods are charged in full; the active period is prorated by days and
+  /// is not treated as overdue.
+  double accruedInterest({DateTime? today}) {
+    final now = today ?? DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    return monthsThrough(day).fold<double>(
+      0,
+      (sum, month) => sum + accruedInterestForMonth(month, today: day),
+    );
+  }
+
+  double accruedInterestForMonth(String month, {DateTime? today}) {
+    final now = today ?? DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final status = statusFor(month, today: day);
+    if (status.due) return status.remaining;
+
+    final periodStart = _interestPeriodStart(month);
+    if (day.isBefore(periodStart) || status.expected <= 0) return 0;
+    final totalDays = status.dueDate.difference(periodStart).inDays + 1;
+    final elapsedDays = day.difference(periodStart).inDays + 1;
+    final ratio = math.min(1.0, math.max(0.0, elapsedDays / totalDays));
+    final accrued = status.expected * ratio;
+    return math.max(0.0, accrued - status.paid);
+  }
+
   double totalOutstanding({DateTime? today}) =>
       outstanding + interestOutstanding(today: today);
 
@@ -319,10 +342,7 @@ class Loan {
       throw const FormatException('Month must use YYYY-MM format.');
     }
     final snapshot = interestPeriodSnapshots[month];
-    final dueDate = snapshot?.dueDate ??
-        (month == _monthKey(interestStartDate)
-            ? firstInterestDueDate
-            : _scheduledDueDate(month, dueDay, interestStartDate));
+    final dueDate = snapshot?.dueDate ?? _interestDueDate(month);
     final now = today ?? DateTime.now();
     final todayAtMidnight = DateTime(now.year, now.month, now.day);
     final expected = interestForMonth(month);
@@ -339,6 +359,38 @@ class Loan {
       isDue: isDue,
       overdueDays: isDue ? todayAtMidnight.difference(dueDate).inDays : 0,
     );
+  }
+
+  DateTime _interestDueDate(String month) {
+    final parts = month.split('-').map(int.parse).toList();
+    final offset = (parts[0] - interestStartDate.year) * 12 +
+        parts[1] -
+        interestStartDate.month;
+    final minimumFirstDue = _interestPeriodCompletionDate(interestStartDate);
+    final effectiveFirstDue = firstInterestDueDate.isBefore(minimumFirstDue)
+        ? minimumFirstDue
+        : firstInterestDueDate;
+    return _addCalendarMonths(effectiveFirstDue, math.max(0, offset));
+  }
+
+  DateTime _interestPeriodStart(String month) {
+    final parts = month.split('-').map(int.parse).toList();
+    final offset = (parts[0] - interestStartDate.year) * 12 +
+        parts[1] -
+        interestStartDate.month;
+    if (offset <= 0) {
+      return DateTime(
+        interestStartDate.year,
+        interestStartDate.month,
+        interestStartDate.day,
+      );
+    }
+    final previousMonth = DateTime(
+      interestStartDate.year,
+      interestStartDate.month + offset - 1,
+    );
+    return _interestDueDate(_monthKey(previousMonth))
+        .add(const Duration(days: 1));
   }
 
   List<String> get months => monthsThrough(DateTime.now());
@@ -402,11 +454,7 @@ class Loan {
       throw const FormatException('Invalid first interest due date.');
     }
     final firstInterestDueDate = rawFirstInterestDueDate == null
-        ? _scheduledDueDate(
-            _monthKey(interestStartDate),
-            dueDay,
-            interestStartDate,
-          )
+        ? _interestPeriodCompletionDate(interestStartDate)
         : _parseDate(rawFirstInterestDueDate as String);
     final rawSnapshots = json['interestPeriodSnapshots'];
     if (rawSnapshots != null && rawSnapshots is! Map) {
@@ -479,28 +527,20 @@ bool _isMonth(String? value) =>
 String _monthKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
 
-DateTime _scheduledDueDate(
-  String month,
-  int dueDay,
-  DateTime interestStartDate,
-) {
-  final parts = month.split('-').map(int.parse).toList();
-  final year = parts[0];
-  final monthNumber = parts[1];
-  final lastDay = DateTime(year, monthNumber + 1, 0).day;
-  var dueDate = DateTime(year, monthNumber, math.min(dueDay, lastDay));
-  if (interestStartDate.isAfter(dueDate)) {
-    final nextMonth = DateTime(year, monthNumber + 1, 1);
-    dueDate = DateTime(
-      nextMonth.year,
-      nextMonth.month,
-      math.min(
-        dueDay,
-        DateTime(nextMonth.year, nextMonth.month + 1, 0).day,
-      ),
-    );
-  }
-  return dueDate;
+DateTime _interestPeriodCompletionDate(DateTime start) {
+  final nextMonth = DateTime(start.year, start.month + 1, 1);
+  final anniversary = DateTime(
+    nextMonth.year,
+    nextMonth.month,
+    math.min(start.day, DateTime(nextMonth.year, nextMonth.month + 1, 0).day),
+  );
+  return anniversary.subtract(const Duration(days: 1));
+}
+
+DateTime _addCalendarMonths(DateTime date, int months) {
+  final target = DateTime(date.year, date.month + months, 1);
+  final lastDay = DateTime(target.year, target.month + 1, 0).day;
+  return DateTime(target.year, target.month, math.min(date.day, lastDay));
 }
 
 String _dateKey(DateTime date) =>

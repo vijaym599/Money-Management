@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_services.dart';
+import 'loan_detail_page.dart';
 import 'loan_reminder.dart';
 import 'models.dart';
 import 'premium_ui.dart';
@@ -198,17 +199,19 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   }
 
   Future<void> _addLoan() async {
-    final loan = await showDialog<Loan>(
-      context: _appContext,
-      builder: (_) => LoanFormDialog(isTamil: _isTamil),
+    final loan = await Navigator.of(_appContext).push<Loan>(
+      MaterialPageRoute(
+        builder: (_) => LoanFormPage(isTamil: _isTamil),
+      ),
     );
     if (loan != null) await _saveLoans([loan, ..._loans]);
   }
 
   Future<void> _editLoan(Loan loan) async {
-    final candidate = await showDialog<Loan>(
-      context: _appContext,
-      builder: (_) => LoanFormDialog(isTamil: _isTamil, loan: loan),
+    final candidate = await Navigator.of(_appContext).push<Loan>(
+      MaterialPageRoute(
+        builder: (_) => LoanFormPage(isTamil: _isTamil, loan: loan),
+      ),
     );
     if (candidate == null || !mounted) return;
     final confirmed = await _showLoanEditPreview(loan, candidate);
@@ -863,8 +866,17 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                   onEditPhone: _editLoanPhone,
                   onSharePdf: _shareLoanPdf,
                   onDelete: _deleteLoan,
-                  onDetails: (context, loan) =>
-                      _showDetails(context, loan, _isTamil),
+                  onDetails: (context, loan) => showLoanDetailsPage(
+                    context,
+                    loan: loan,
+                    isTamil: _isTamil,
+                    onPayment: () => _addPayment(loan),
+                    onShare: () => showLoanShareSheet(
+                      context,
+                      loan: loan,
+                      appIsTamil: _isTamil,
+                    ),
+                  ),
                   onLanguageChanged: _changeLanguage,
                   onThemeChanged: _changeTheme,
                   onProfileSaved: _saveProfile,
@@ -1909,16 +1921,16 @@ class _SettingsPageState extends State<_SettingsPage> {
       );
 }
 
-class LoanFormDialog extends StatefulWidget {
-  const LoanFormDialog({required this.isTamil, this.loan, super.key});
+class LoanFormPage extends StatefulWidget {
+  const LoanFormPage({required this.isTamil, this.loan, super.key});
   final bool isTamil;
   final Loan? loan;
 
   @override
-  State<LoanFormDialog> createState() => _LoanFormDialogState();
+  State<LoanFormPage> createState() => _LoanFormPageState();
 }
 
-class _LoanFormDialogState extends State<LoanFormDialog> {
+class _LoanFormPageState extends State<LoanFormPage> {
   final _formKey = GlobalKey<FormState>();
   final _person = TextEditingController();
   final _phone = TextEditingController();
@@ -1961,19 +1973,17 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
   String _plainNumber(double value) =>
       value == value.roundToDouble() ? value.toInt().toString() : '$value';
 
-  DateTime _dueDateFor(DateTime start, int day) {
-    var year = start.year;
-    var month = start.month;
-    var lastDay = DateTime(year, month + 1, 0).day;
-    var result = DateTime(year, month, math.min(day, lastDay));
-    if (result.isBefore(start)) {
-      final next = DateTime(year, month + 1);
-      year = next.year;
-      month = next.month;
-      lastDay = DateTime(year, month + 1, 0).day;
-      result = DateTime(year, month, math.min(day, lastDay));
-    }
-    return result;
+  DateTime _dueDateFor(DateTime start, int _) {
+    final nextMonth = DateTime(start.year, start.month + 1, 1);
+    final anniversary = DateTime(
+      nextMonth.year,
+      nextMonth.month,
+      math.min(
+        start.day,
+        DateTime(nextMonth.year, nextMonth.month + 1, 0).day,
+      ),
+    );
+    return anniversary.subtract(const Duration(days: 1));
   }
 
   @override
@@ -2008,11 +2018,12 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
         if (_interestStartDate.isBefore(selected)) {
           _interestStartDate = selected;
         }
-        if (_firstInterestDueDate.isBefore(_interestStartDate)) {
-          _firstInterestDueDate = _dueDateFor(
-            _interestStartDate,
-            int.tryParse(_dueDay.text) ?? 5,
-          );
+        final minimumDue = _dueDateFor(
+          _interestStartDate,
+          int.tryParse(_dueDay.text) ?? 5,
+        );
+        if (_firstInterestDueDate.isBefore(minimumDue)) {
+          _firstInterestDueDate = minimumDue;
         }
       });
     }
@@ -2031,11 +2042,10 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
     if (selected != null) {
       setState(() {
         _interestStartDate = selected;
-        if (_firstInterestDueDate.isBefore(selected)) {
-          _firstInterestDueDate = _dueDateFor(
-            selected,
-            int.tryParse(_dueDay.text) ?? 5,
-          );
+        final minimumDue =
+            _dueDateFor(selected, int.tryParse(_dueDay.text) ?? 5);
+        if (_firstInterestDueDate.isBefore(minimumDue)) {
+          _firstInterestDueDate = minimumDue;
         }
       });
     }
@@ -2043,12 +2053,14 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
 
   Future<void> _pickFirstInterestDueDate() async {
     final now = DateTime.now();
+    final minimumDueDate =
+        _dueDateFor(_interestStartDate, int.tryParse(_dueDay.text) ?? 5);
     final selected = await showDatePicker(
       context: context,
-      initialDate: _firstInterestDueDate.isBefore(_interestStartDate)
-          ? _interestStartDate
+      initialDate: _firstInterestDueDate.isBefore(minimumDueDate)
+          ? minimumDueDate
           : _firstInterestDueDate,
-      firstDate: _interestStartDate,
+      firstDate: minimumDueDate,
       lastDate: DateTime(now.year + 30, 12, 31),
     );
     if (selected != null) setState(() => _firstInterestDueDate = selected);
@@ -2059,10 +2071,11 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
     final principal = double.parse(_principal.text);
     final rate = double.parse(_rate.text);
     final dueDay = int.parse(_dueDay.text);
-    if (_firstInterestDueDate.isBefore(_interestStartDate) && rate > 0) {
+    final minimumFirstDueDate = _dueDateFor(_interestStartDate, dueDay);
+    if (_firstInterestDueDate.isBefore(minimumFirstDueDate) && rate > 0) {
       _message(_tr(
-        'முதல் வட்டி தவணை தேதி, வட்டி தொடங்கும் தேதிக்கு முன் இருக்க முடியாது.',
-        'First interest due date cannot be before the interest start date.',
+        'முதல் வட்டி தவணை ஒரு முழு மாதம் முடிந்த பிறகே இருக்க வேண்டும்.',
+        'First interest due date must be after one complete month.',
       ));
       return;
     }
@@ -2104,224 +2117,240 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
           : null;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(_editing
-            ? _tr('கடன் அமைப்புகளைத் திருத்து', 'Edit loan settings')
-            : _tr('கடன் விவரங்கள்', 'Loan details')),
-        content: SizedBox(
-          width: 440,
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text(_editing
+              ? _tr('கடன் அமைப்புகளைத் திருத்து', 'Edit loan settings')
+              : _tr('புதிய கடன்', 'New loan')),
+        ),
+        body: SafeArea(
           child: Form(
             key: _formKey,
             child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SegmentedButton<String>(
-                    segments: [
-                      ButtonSegment(
-                        value: 'given',
-                        label: Text(_tr('நான் கொடுத்தது', 'I lent')),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SegmentedButton<String>(
+                        segments: [
+                          ButtonSegment(
+                            value: 'given',
+                            label: Text(_tr('நான் கொடுத்தது', 'I lent')),
+                          ),
+                          ButtonSegment(
+                            value: 'taken',
+                            label: Text(_tr('நான் வாங்கியது', 'I borrowed')),
+                          ),
+                        ],
+                        selected: {_direction},
+                        onSelectionChanged: _editing
+                            ? null
+                            : (value) => setState(() {
+                                  _direction = value.first;
+                                  if (_direction == 'taken' && _interestFree) {
+                                    _interestFree = false;
+                                    _rate.text = '2';
+                                  }
+                                }),
                       ),
-                      ButtonSegment(
-                        value: 'taken',
-                        label: Text(_tr('நான் வாங்கியது', 'I borrowed')),
-                      ),
-                    ],
-                    selected: {_direction},
-                    onSelectionChanged: _editing
-                        ? null
-                        : (value) => setState(() {
-                              _direction = value.first;
-                              if (_direction == 'taken' && _interestFree) {
-                                _interestFree = false;
-                                _rate.text = '2';
-                              }
-                            }),
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _person,
-                    maxLength: 70,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: _tr('நபர் பெயர்', 'Person name'),
-                    ),
-                    validator: (value) =>
-                        _required(value, _tr('பெயரை', 'Name')),
-                  ),
-                  TextFormField(
-                    controller: _phone,
-                    keyboardType: TextInputType.phone,
-                    maxLength: 18,
-                    decoration: InputDecoration(
-                      labelText: _tr('WhatsApp எண் (விருப்பம்)',
-                          'WhatsApp number (optional)'),
-                      hintText: '+91 98765 43210',
-                      prefixIcon: const Icon(Icons.phone_outlined),
-                    ),
-                    validator: (value) {
-                      if ((value ?? '').trim().isEmpty) return null;
-                      final digits = value!.replaceAll(RegExp(r'\D'), '');
-                      if (digits.length < 10 || digits.length > 15) {
-                        return _tr(
-                          'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
-                          'Enter a valid phone number',
-                        );
-                      }
-                      return null;
-                    },
-                  ),
-                  TextFormField(
-                    controller: _principal,
-                    readOnly: _editing,
-                    onChanged: (_) => setState(() {}),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: _tr('முதல்தொகை (₹)', 'Principal (₹)'),
-                    ),
-                    validator: (value) {
-                      final number = double.tryParse(value ?? '');
-                      if (number == null || !number.isFinite || number <= 0) {
-                        return _tr(
-                            'சரியான தொகையை உள்ளிடவும்', 'Enter a valid amount');
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  if (_direction == 'given') ...[
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title:
-                          Text(_tr('வட்டி இல்லா கடன்', 'Interest-free loan')),
-                      subtitle: Text(_tr(
-                        'இந்த நபரிடம் வட்டி வசூலிக்கப்படாது',
-                        'No interest will be charged to this person',
-                      )),
-                      secondary: const Icon(Icons.favorite_outline_rounded),
-                      value: _interestFree,
-                      onChanged: (value) => setState(() {
-                        _interestFree = value;
-                        _rate.text = value ? '0' : '2';
-                      }),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                  if (!_interestFree) ...[
-                    TextFormField(
-                      controller: _rate,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(
-                          labelText: _tr('மாத வட்டி (%)', 'Monthly rate (%)')),
-                      validator: (value) {
-                        final number = double.tryParse(value ?? '');
-                        if (number == null ||
-                            !number.isFinite ||
-                            number < 0 ||
-                            number > 100) {
-                          return _tr('0 முதல் 100 வரை உள்ளிடவும்',
-                              'Enter a value from 0 to 100');
-                        }
-                        return null;
-                      },
-                    ),
-                    if (_hasInterest) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                       TextFormField(
-                        controller: _dueDay,
-                        onChanged: (_) => setState(() {}),
-                        keyboardType: TextInputType.number,
+                        controller: _person,
+                        maxLength: 70,
+                        textCapitalization: TextCapitalization.words,
                         decoration: InputDecoration(
-                          labelText: _tr('மாத வட்டி தவணை நாள் (1–31)',
-                              'Monthly interest due day (1–31)'),
+                          labelText: _tr('நபர் பெயர்', 'Person name'),
+                        ),
+                        validator: (value) =>
+                            _required(value, _tr('பெயரை', 'Name')),
+                      ),
+                      TextFormField(
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
+                        maxLength: 18,
+                        decoration: InputDecoration(
+                          labelText: _tr('WhatsApp எண் (விருப்பம்)',
+                              'WhatsApp number (optional)'),
+                          hintText: '+91 98765 43210',
+                          prefixIcon: const Icon(Icons.phone_outlined),
                         ),
                         validator: (value) {
-                          final number = int.tryParse(value ?? '');
-                          if (number == null || number < 1 || number > 31) {
-                            return _tr('1 முதல் 31 வரை உள்ளிடவும்',
-                                'Enter a day from 1 to 31');
+                          if ((value ?? '').trim().isEmpty) return null;
+                          final digits = value!.replaceAll(RegExp(r'\D'), '');
+                          if (digits.length < 10 || digits.length > 15) {
+                            return _tr(
+                              'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
+                              'Enter a valid phone number',
+                            );
                           }
                           return null;
                         },
                       ),
-                    ],
-                  ],
-                  const SizedBox(height: 12),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(_tr('கடன் தேதி', 'Loan date')),
-                    subtitle: Text(MaterialLocalizations.of(context)
-                        .formatMediumDate(_loanDate)),
-                    trailing: const Icon(Icons.calendar_month),
-                    onTap: _pickLoanDate,
-                  ),
-                  if (_hasInterest)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                          _tr('வட்டி தொடங்கும் தேதி', 'Interest start date')),
-                      subtitle: Text(MaterialLocalizations.of(context)
-                          .formatMediumDate(_interestStartDate)),
-                      trailing: const Icon(Icons.calendar_month),
-                      onTap: _pickInterestStartDate,
-                    ),
-                  if (_hasInterest)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(_tr(
-                        'முதல் வட்டி தவணை தேதி',
-                        'First interest due date',
-                      )),
-                      subtitle: Text(MaterialLocalizations.of(context)
-                          .formatMediumDate(_firstInterestDueDate)),
-                      trailing: const Icon(Icons.event_available_outlined),
-                      onTap: _pickFirstInterestDueDate,
-                    ),
-                  TextFormField(
-                    controller: _note,
-                    maxLength: 120,
-                    decoration: InputDecoration(
-                      labelText: _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
-                    ),
-                  ),
-                  if (_hasInterest &&
-                      _principal.text.isNotEmpty &&
-                      _rate.text.isNotEmpty &&
-                      double.tryParse(_principal.text) != null &&
-                      double.tryParse(_rate.text) != null)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _tr('மாத வட்டி: ', 'Monthly interest: ') +
-                            NumberFormat.currency(
-                              locale: 'en_IN',
-                              symbol: '₹',
-                              decimalDigits: 2,
-                            ).format(double.parse(_principal.text) *
-                                double.parse(_rate.text) /
-                                100),
+                      TextFormField(
+                        controller: _principal,
+                        readOnly: _editing,
+                        onChanged: (_) => setState(() {}),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: InputDecoration(
+                          labelText: _tr('முதல்தொகை (₹)', 'Principal (₹)'),
+                        ),
+                        validator: (value) {
+                          final number = double.tryParse(value ?? '');
+                          if (number == null ||
+                              !number.isFinite ||
+                              number <= 0) {
+                            return _tr('சரியான தொகையை உள்ளிடவும்',
+                                'Enter a valid amount');
+                          }
+                          return null;
+                        },
                       ),
-                    ),
-                ],
+                      const SizedBox(height: 12),
+                      if (_direction == 'given') ...[
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                              _tr('வட்டி இல்லா கடன்', 'Interest-free loan')),
+                          subtitle: Text(_tr(
+                            'இந்த நபரிடம் வட்டி வசூலிக்கப்படாது',
+                            'No interest will be charged to this person',
+                          )),
+                          secondary: const Icon(Icons.favorite_outline_rounded),
+                          value: _interestFree,
+                          onChanged: (value) => setState(() {
+                            _interestFree = value;
+                            _rate.text = value ? '0' : '2';
+                          }),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      if (!_interestFree) ...[
+                        TextFormField(
+                          controller: _rate,
+                          onChanged: (_) => setState(() {}),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: InputDecoration(
+                              labelText:
+                                  _tr('மாத வட்டி (%)', 'Monthly rate (%)')),
+                          validator: (value) {
+                            final number = double.tryParse(value ?? '');
+                            if (number == null ||
+                                !number.isFinite ||
+                                number < 0 ||
+                                number > 100) {
+                              return _tr('0 முதல் 100 வரை உள்ளிடவும்',
+                                  'Enter a value from 0 to 100');
+                            }
+                            return null;
+                          },
+                        ),
+                        if (_hasInterest) ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _dueDay,
+                            onChanged: (_) => setState(() {}),
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText: _tr('மாத வட்டி தவணை நாள் (1–31)',
+                                  'Monthly interest due day (1–31)'),
+                            ),
+                            validator: (value) {
+                              final number = int.tryParse(value ?? '');
+                              if (number == null || number < 1 || number > 31) {
+                                return _tr('1 முதல் 31 வரை உள்ளிடவும்',
+                                    'Enter a day from 1 to 31');
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 12),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(_tr('கடன் தேதி', 'Loan date')),
+                        subtitle: Text(MaterialLocalizations.of(context)
+                            .formatMediumDate(_loanDate)),
+                        trailing: const Icon(Icons.calendar_month),
+                        onTap: _pickLoanDate,
+                      ),
+                      if (_hasInterest)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_tr(
+                              'வட்டி தொடங்கும் தேதி', 'Interest start date')),
+                          subtitle: Text(MaterialLocalizations.of(context)
+                              .formatMediumDate(_interestStartDate)),
+                          trailing: const Icon(Icons.calendar_month),
+                          onTap: _pickInterestStartDate,
+                        ),
+                      if (_hasInterest)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_tr(
+                            'முதல் வட்டி தவணை தேதி',
+                            'First interest due date',
+                          )),
+                          subtitle: Text(MaterialLocalizations.of(context)
+                              .formatMediumDate(_firstInterestDueDate)),
+                          trailing: const Icon(Icons.event_available_outlined),
+                          onTap: _pickFirstInterestDueDate,
+                        ),
+                      TextFormField(
+                        controller: _note,
+                        maxLength: 120,
+                        decoration: InputDecoration(
+                          labelText:
+                              _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
+                        ),
+                      ),
+                      if (_hasInterest &&
+                          _principal.text.isNotEmpty &&
+                          _rate.text.isNotEmpty &&
+                          double.tryParse(_principal.text) != null &&
+                          double.tryParse(_rate.text) != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _tr('மாத வட்டி: ', 'Monthly interest: ') +
+                                NumberFormat.currency(
+                                  locale: 'en_IN',
+                                  symbol: '₹',
+                                  decimalDigits: 2,
+                                ).format(double.parse(_principal.text) *
+                                    double.parse(_rate.text) /
+                                    100),
+                          ),
+                        ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: Text(_tr('ரத்து', 'Cancel')),
+                          ),
+                          const SizedBox(width: 10),
+                          FilledButton(
+                            onPressed: _submit,
+                            child: Text(_editing
+                                ? _tr('மாற்றங்களைப் பார்க்க', 'Review changes')
+                                : _tr('சேமி', 'Save')),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(_tr('ரத்து', 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: _submit,
-            child: Text(_editing
-                ? _tr('மாற்றங்களைப் பார்க்க', 'Review changes')
-                : _tr('சேமி', 'Save')),
-          ),
-        ],
       );
 }
 
@@ -2350,6 +2379,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         (month) => _loan.statusFor(month).remaining > 0.009,
       );
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
+  double get _interestPayable =>
+      _loan.accruedInterestForMonth(_month, today: _paymentDate);
 
   @override
   void initState() {
@@ -2359,10 +2390,10 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
     _month = _loan.oldestUnpaidMonth(dueOnly: true) ??
         _loan.oldestUnpaidMonth() ??
         currentMonth;
-    final remaining = _loan.statusFor(_month).remaining;
-    if (!_canPayInterest || remaining <= 0.009) _type = 'principal';
-    _amount.text = (_type == 'interest' ? remaining : _loan.outstanding)
-        .toStringAsFixed(2);
+    final payable = _interestPayable;
+    if (!_canPayInterest || payable <= 0.009) _type = 'principal';
+    _amount.text =
+        (_type == 'interest' ? payable : _loan.outstanding).toStringAsFixed(2);
   }
 
   @override
@@ -2397,9 +2428,8 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         ? [DateFormat('yyyy-MM').format(DateTime.now())]
         : _loan.months.reversed.toList();
     if (!monthOptions.contains(_month)) _month = monthOptions.first;
-    final monthStatus = _loan.statusFor(_month);
     final maxAmount =
-        _type == 'interest' ? monthStatus.remaining : _loan.outstanding;
+        _type == 'interest' ? _interestPayable : _loan.outstanding;
 
     return AlertDialog(
       title:
@@ -2429,7 +2459,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       setState(() {
                         _type = value.first;
                         _amount.text = (_type == 'interest'
-                                ? _loan.statusFor(_month).remaining
+                                ? _interestPayable
                                 : _loan.outstanding)
                             .toStringAsFixed(2);
                       });
@@ -2453,10 +2483,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       if (value != null) {
                         setState(() {
                           _month = value;
-                          _amount.text = _loan
-                              .statusFor(_month)
-                              .remaining
-                              .toStringAsFixed(2);
+                          _amount.text = _interestPayable.toStringAsFixed(2);
                         });
                       }
                     },
@@ -2505,7 +2532,12 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                       lastDate: DateTime(today.year, today.month, today.day),
                     );
                     if (selected != null) {
-                      setState(() => _paymentDate = selected);
+                      setState(() {
+                        _paymentDate = selected;
+                        if (_type == 'interest') {
+                          _amount.text = _interestPayable.toStringAsFixed(2);
+                        }
+                      });
                     }
                   },
                 ),
@@ -2539,161 +2571,165 @@ Future<void> _showDetails(BuildContext context, Loan loan, bool isTamil) async {
   final months =
       loan.rate > 0 ? loan.monthsThrough(now).reversed.toList() : <String>[];
   final interestOutstanding = loan.interestOutstanding(today: now);
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(loan.person),
-      content: SizedBox(
-        width: 560,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            _DetailLine(
-              label: tr('கடன் வகை', 'Loan type'),
-              value: tr(
-                  loan.direction == 'given'
-                      ? 'நான் கொடுத்தது'
-                      : 'நான் வாங்கியது',
-                  loan.direction == 'given' ? 'Lent' : 'Borrowed'),
-            ),
-            if (loan.phone.isNotEmpty)
-              _DetailLine(
-                label: tr('WhatsApp எண்', 'WhatsApp number'),
-                value: loan.phone,
-              ),
-            _DetailLine(
-              label: tr('தொடக்க முதல்தொகை', 'Original principal'),
-              value: money(loan.principal),
-            ),
-            _DetailLine(
-              label: tr('நிலுவை முதல்தொகை', 'Outstanding principal'),
-              value: money(loan.outstanding),
-            ),
-            if (loan.rate > 0) ...[
-              _DetailLine(
-                label: tr('வட்டி நிலுவை', 'Interest outstanding'),
-                value: money(interestOutstanding),
-              ),
-              _DetailLine(
-                label: tr('மாத வட்டி', 'Monthly interest'),
-                value: '${loan.rate}% · ${money(loan.monthlyInterest)}',
-              ),
-              _DetailLine(
-                label: tr('வட்டி செலுத்தும் தேதி', 'Interest due day'),
-                value: '${loan.dueDay}',
-              ),
-            ],
-            _DetailLine(
-              label: tr('மொத்த நிலுவை', 'Total outstanding'),
-              value: money(loan.totalOutstanding(today: now)),
-            ),
-            _DetailLine(
-              label: tr('கடன் தேதி', 'Loan date'),
-              value: MaterialLocalizations.of(context)
-                  .formatMediumDate(loan.startDate),
-            ),
-            if (loan.rate > 0)
-              _DetailLine(
-                label: tr('வட்டி தொடங்கும் தேதி', 'Interest start date'),
-                value: MaterialLocalizations.of(context)
-                    .formatMediumDate(loan.interestStartDate),
-              ),
-            if (loan.rate > 0)
-              _DetailLine(
-                label: tr('முதல் வட்டி தவணை தேதி', 'First interest due date'),
-                value: MaterialLocalizations.of(context)
-                    .formatMediumDate(loan.firstInterestDueDate),
-              ),
-            if (loan.lastPaymentDate != null)
-              _DetailLine(
-                label: tr('கடைசி பணம் பெற்ற தேதி', 'Last payment date'),
-                value: MaterialLocalizations.of(context)
-                    .formatMediumDate(loan.lastPaymentDate!),
-              ),
-            if (loan.note.isNotEmpty)
-              _DetailLine(label: tr('குறிப்பு', 'Note'), value: loan.note),
-            if (loan.hasInterestLedger) ...[
-              const Divider(),
-              Text(tr('மாத வாரியான வட்டி கணக்கு', 'Monthly interest ledger'),
-                  style: Theme.of(context).textTheme.titleMedium),
-              if (months.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(tr('பதிவுகள் இல்லை', 'No entries yet')),
-                ),
-              for (final month in months)
-                Builder(builder: (context) {
-                  final status = loan.statusFor(month);
-                  final date = DateTime(
-                    int.parse(month.substring(0, 4)),
-                    int.parse(month.substring(5, 7)),
-                  );
-                  final title =
-                      MaterialLocalizations.of(context).formatMonthYear(date);
-                  final interestPayments = loan.payments
-                      .where((payment) =>
-                          payment.type == 'interest' && payment.month == month)
-                      .toList();
-                  return ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(title),
-                    subtitle: Text(
-                      '${tr('வட்டி', 'Interest')}: ${money(status.expected)} · ${tr('மீதி', 'Remaining')}: ${money(status.remaining)}',
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (pageContext) => Scaffold(
+        appBar: AppBar(title: Text(loan.person)),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                children: [
+                  _DetailLine(
+                    label: tr('கடன் வகை', 'Loan type'),
+                    value: tr(
+                        loan.direction == 'given'
+                            ? 'நான் கொடுத்தது'
+                            : 'நான் வாங்கியது',
+                        loan.direction == 'given' ? 'Lent' : 'Borrowed'),
+                  ),
+                  if (loan.phone.isNotEmpty)
+                    _DetailLine(
+                      label: tr('WhatsApp எண்', 'WhatsApp number'),
+                      value: loan.phone,
                     ),
-                    children: [
+                  _DetailLine(
+                    label: tr('தொடக்க முதல்தொகை', 'Original principal'),
+                    value: money(loan.principal),
+                  ),
+                  _DetailLine(
+                    label: tr('நிலுவை முதல்தொகை', 'Outstanding principal'),
+                    value: money(loan.outstanding),
+                  ),
+                  if (loan.rate > 0) ...[
+                    _DetailLine(
+                      label: tr('வட்டி நிலுவை', 'Interest outstanding'),
+                      value: money(interestOutstanding),
+                    ),
+                    _DetailLine(
+                      label: tr('மாத வட்டி', 'Monthly interest'),
+                      value: '${loan.rate}% · ${money(loan.monthlyInterest)}',
+                    ),
+                    _DetailLine(
+                      label: tr('வட்டி செலுத்தும் தேதி', 'Interest due day'),
+                      value: '${loan.dueDay}',
+                    ),
+                  ],
+                  _DetailLine(
+                    label: tr('மொத்த நிலுவை', 'Total outstanding'),
+                    value: money(loan.totalOutstanding(today: now)),
+                  ),
+                  _DetailLine(
+                    label: tr('கடன் தேதி', 'Loan date'),
+                    value: MaterialLocalizations.of(context)
+                        .formatMediumDate(loan.startDate),
+                  ),
+                  if (loan.rate > 0)
+                    _DetailLine(
+                      label: tr('வட்டி தொடங்கும் தேதி', 'Interest start date'),
+                      value: MaterialLocalizations.of(context)
+                          .formatMediumDate(loan.interestStartDate),
+                    ),
+                  if (loan.rate > 0)
+                    _DetailLine(
+                      label: tr(
+                          'முதல் வட்டி தவணை தேதி', 'First interest due date'),
+                      value: MaterialLocalizations.of(context)
+                          .formatMediumDate(loan.firstInterestDueDate),
+                    ),
+                  if (loan.lastPaymentDate != null)
+                    _DetailLine(
+                      label: tr('கடைசி பணம் பெற்ற தேதி', 'Last payment date'),
+                      value: MaterialLocalizations.of(context)
+                          .formatMediumDate(loan.lastPaymentDate!),
+                    ),
+                  if (loan.note.isNotEmpty)
+                    _DetailLine(
+                        label: tr('குறிப்பு', 'Note'), value: loan.note),
+                  if (loan.hasInterestLedger) ...[
+                    const Divider(),
+                    Text(
+                        tr('மாத வாரியான வட்டி கணக்கு',
+                            'Monthly interest ledger'),
+                        style: Theme.of(context).textTheme.titleMedium),
+                    if (months.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text(tr('பதிவுகள் இல்லை', 'No entries yet')),
+                      ),
+                    for (final month in months)
+                      Builder(builder: (context) {
+                        final status = loan.statusFor(month);
+                        final date = DateTime(
+                          int.parse(month.substring(0, 4)),
+                          int.parse(month.substring(5, 7)),
+                        );
+                        final title = MaterialLocalizations.of(context)
+                            .formatMonthYear(date);
+                        final interestPayments = loan.payments
+                            .where((payment) =>
+                                payment.type == 'interest' &&
+                                payment.month == month)
+                            .toList();
+                        return ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: Text(title),
+                          subtitle: Text(
+                            '${tr('வட்டி', 'Interest')}: ${money(status.expected)} · ${tr('மீதி', 'Remaining')}: ${money(status.remaining)}',
+                          ),
+                          children: [
+                            ListTile(
+                              dense: true,
+                              title: Text(status.isDue
+                                  ? tr('நிலுவை', 'Overdue')
+                                  : status.remaining <= 0.009
+                                      ? tr('செலுத்தப்பட்டது', 'Paid')
+                                      : tr('நிலுவையில் இல்லை', 'Not yet due')),
+                              subtitle: Text(tr(
+                                'செலுத்த வேண்டிய தேதி: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
+                                'Due date: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
+                              )),
+                            ),
+                            for (final payment in interestPayments)
+                              ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.check_circle_outline),
+                                title: Text(money(payment.amount)),
+                                subtitle: Text(MaterialLocalizations.of(context)
+                                    .formatMediumDate(payment.date)),
+                              ),
+                          ],
+                        );
+                      }),
+                  ],
+                  if (loan.payments
+                      .any((payment) => payment.type == 'principal')) ...[
+                    const Divider(),
+                    Text(
+                        tr('முதல்தொகை திருப்பிச் செலுத்தல்கள்',
+                            'Principal repayments'),
+                        style: Theme.of(context).textTheme.titleMedium),
+                    for (final payment
+                        in loan.payments
+                            .where((payment) => payment.type == 'principal')
+                            .toList()
+                          ..sort((a, b) => b.date.compareTo(a.date)))
                       ListTile(
                         dense: true,
-                        title: Text(status.isDue
-                            ? tr('நிலுவை', 'Overdue')
-                            : status.remaining <= 0.009
-                                ? tr('செலுத்தப்பட்டது', 'Paid')
-                                : tr('நிலுவையில் இல்லை', 'Not yet due')),
-                        subtitle: Text(tr(
-                          'செலுத்த வேண்டிய தேதி: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
-                          'Due date: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
-                        )),
+                        leading: const Icon(Icons.payments_outlined),
+                        title: Text(money(payment.amount)),
+                        subtitle: Text(MaterialLocalizations.of(context)
+                            .formatMediumDate(payment.date)),
                       ),
-                      for (final payment in interestPayments)
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.check_circle_outline),
-                          title: Text(money(payment.amount)),
-                          subtitle: Text(MaterialLocalizations.of(context)
-                              .formatMediumDate(payment.date)),
-                        ),
-                    ],
-                  );
-                }),
-            ],
-            if (loan.payments
-                .any((payment) => payment.type == 'principal')) ...[
-              const Divider(),
-              Text(
-                  tr('முதல்தொகை திருப்பிச் செலுத்தல்கள்',
-                      'Principal repayments'),
-                  style: Theme.of(context).textTheme.titleMedium),
-              for (final payment
-                  in loan.payments
-                      .where((payment) => payment.type == 'principal')
-                      .toList()
-                    ..sort((a, b) => b.date.compareTo(a.date)))
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.payments_outlined),
-                  title: Text(money(payment.amount)),
-                  subtitle: Text(MaterialLocalizations.of(context)
-                      .formatMediumDate(payment.date)),
-                ),
-            ],
-          ],
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: Text(tr('மூடு', 'Close')),
-        ),
-      ],
     ),
   );
 }

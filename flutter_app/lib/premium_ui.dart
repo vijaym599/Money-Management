@@ -345,24 +345,6 @@ class _DashboardPage extends StatelessWidget {
             overdue: overdue,
             isTamil: isTamil,
           ),
-          const SizedBox(height: 24),
-          _SectionHeading(
-            title: _tr('விரைவு செயல்கள்', 'Quick actions'),
-          ),
-          const SizedBox(height: 12),
-          _QuickActions(
-            isTamil: isTamil,
-            hasLoans: loans.isNotEmpty,
-            onAdd: onAddLoan,
-            onPayment: () => _pickLoanForPayment(
-              context,
-              loans,
-              isTamil,
-              onPayment,
-            ),
-            onCalculator: () => _showCalculator(context, isTamil),
-            onBackup: onBackup,
-          ),
           const SizedBox(height: 26),
           _ResponsiveSummaryGrid(
             children: [
@@ -445,6 +427,24 @@ class _DashboardPage extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 26),
+          _SectionHeading(
+            title: _tr('விரைவு செயல்கள்', 'Quick actions'),
+          ),
+          const SizedBox(height: 12),
+          _QuickActions(
+            isTamil: isTamil,
+            hasLoans: loans.isNotEmpty,
+            onAdd: onAddLoan,
+            onPayment: () => _pickLoanForPayment(
+              context,
+              loans,
+              isTamil,
+              onPayment,
+            ),
+            onCalculator: () => _showCalculator(context, isTamil),
+            onBackup: onBackup,
+          ),
           const SizedBox(height: 100),
         ],
       ),
@@ -652,17 +652,26 @@ class _PeoplePage extends StatelessWidget {
                       name: people[i].key,
                       loans: people[i].value,
                       isTamil: isTamil,
-                      onTap: () => _showPersonDetails(
-                        context,
-                        people[i].key,
-                        people[i].value,
-                        isTamil,
-                        onEditLoan,
-                        onPayment,
-                        onEditPhone,
-                        onSharePdf,
-                        onDetails,
-                      ),
+                      onTap: () {
+                        final personLoans = people[i].value;
+                        if (personLoans.length == 1) {
+                          // Most people have one account. Open it directly so
+                          // People -> loan details is a two-screen flow.
+                          onDetails(context, personLoans.single);
+                          return;
+                        }
+                        _showPersonDetails(
+                          context,
+                          people[i].key,
+                          personLoans,
+                          isTamil,
+                          onEditLoan,
+                          onPayment,
+                          onEditPhone,
+                          onSharePdf,
+                          onDetails,
+                        );
+                      },
                     ),
                     if (i < people.length - 1)
                       const Divider(height: 1, indent: 72),
@@ -1865,11 +1874,18 @@ class _PremiumLoanCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        loan.person,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                      InkWell(
+                        onTap: onDetails,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            loan.person,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -2956,8 +2972,12 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
   final _duration = TextEditingController();
   String _method = 'simple';
   String _period = 'monthly';
+  String _inputMode = 'duration';
+  DateTime _fromDate = DateTime.now();
+  DateTime _endDate = DateTime.now().add(const Duration(days: 30));
   double? _interest;
   double? _total;
+  String? _calculationPeriod;
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
 
@@ -2972,7 +2992,9 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
   void _calculate() {
     final principal = double.tryParse(_principal.text);
     final rate = double.tryParse(_rate.text);
-    final duration = double.tryParse(_duration.text);
+    final duration = _inputMode == 'dates'
+        ? _datePeriodUnits().$1
+        : double.tryParse(_duration.text);
     if (principal == null ||
         rate == null ||
         duration == null ||
@@ -2994,8 +3016,92 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
     setState(() {
       _total = total;
       _interest = total - principal;
+      _calculationPeriod = _inputMode == 'dates' ? _datePeriodUnits().$2 : null;
     });
   }
+
+  (double, String) _datePeriodUnits() {
+    if (_endDate.isBefore(_fromDate)) return (0, '');
+    var cursor = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
+    final end = DateTime(_endDate.year, _endDate.month, _endDate.day);
+    var completePeriods = 0;
+
+    DateTime completionDate(DateTime start) {
+      final target = _period == 'monthly'
+          ? DateTime(start.year, start.month + 1, 1)
+          : DateTime(start.year + 1, start.month, 1);
+      final lastDay = DateTime(target.year, target.month + 1, 0).day;
+      final anniversary = DateTime(
+        target.year,
+        target.month,
+        math.min(start.day, lastDay),
+      );
+      return anniversary.subtract(const Duration(days: 1));
+    }
+
+    var completion = completionDate(cursor);
+    while (!completion.isAfter(end)) {
+      completePeriods++;
+      cursor = completion.add(const Duration(days: 1));
+      completion = completionDate(cursor);
+    }
+    final remainingDays =
+        end.isBefore(cursor) ? 0 : end.difference(cursor).inDays + 1;
+    final partialPeriodDays = completion.difference(cursor).inDays + 1;
+    final units = completePeriods + remainingDays / partialPeriodDays;
+    final unitLabel =
+        _period == 'monthly' ? _tr('மாதம்', 'month') : _tr('ஆண்டு', 'year');
+    final label = remainingDays == 0
+        ? '$completePeriods $unitLabel'
+        : '$completePeriods $unitLabel + $remainingDays ${_tr('நாட்கள்', 'days')}';
+    return (units, label);
+  }
+
+  Future<void> _pickCalculatorDate({required bool from}) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: from ? _fromDate : _endDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null) return;
+    setState(() {
+      if (from) {
+        _fromDate = selected;
+        if (_endDate.isBefore(selected)) _endDate = selected;
+      } else {
+        _endDate = selected;
+      }
+      _interest = null;
+      _total = null;
+      _calculationPeriod = null;
+    });
+  }
+
+  Widget _periodDropdown() => DropdownButtonFormField<String>(
+        initialValue: _period,
+        decoration: InputDecoration(labelText: _tr('காலம்', 'Period')),
+        items: [
+          DropdownMenuItem(
+            value: 'monthly',
+            child: Text(_tr('மாதங்கள்', 'Months')),
+          ),
+          DropdownMenuItem(
+            value: 'yearly',
+            child: Text(_tr('ஆண்டுகள்', 'Years')),
+          ),
+        ],
+        onChanged: (value) {
+          if (value != null) {
+            setState(() {
+              _period = value;
+              _interest = null;
+              _total = null;
+              _calculationPeriod = null;
+            });
+          }
+        },
+      );
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -3050,39 +3156,69 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _duration,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(
-                        labelText: _tr('கால அளவு', 'Duration'),
-                      ),
-                    ),
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: 'duration',
+                    icon: const Icon(Icons.timelapse_rounded),
+                    label: Text(_tr('கால அளவு', 'Duration')),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _period,
-                      decoration:
-                          InputDecoration(labelText: _tr('காலம்', 'Period')),
-                      items: [
-                        DropdownMenuItem(
-                            value: 'monthly',
-                            child: Text(_tr('மாதங்கள்', 'Months'))),
-                        DropdownMenuItem(
-                            value: 'yearly',
-                            child: Text(_tr('ஆண்டுகள்', 'Years'))),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) setState(() => _period = value);
-                      },
-                    ),
+                  ButtonSegment(
+                    value: 'dates',
+                    icon: const Icon(Icons.date_range_outlined),
+                    label: Text(_tr('தேதிகள்', 'Dates')),
                   ),
                 ],
+                selected: {_inputMode},
+                onSelectionChanged: (value) => setState(() {
+                  _inputMode = value.first;
+                  _interest = null;
+                  _total = null;
+                  _calculationPeriod = null;
+                }),
               ),
+              const SizedBox(height: 12),
+              if (_inputMode == 'duration')
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _duration,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: InputDecoration(
+                          labelText: _tr('கால அளவு', 'Duration'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(child: _periodDropdown()),
+                  ],
+                )
+              else ...[
+                _periodDropdown(),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DateField(
+                        label: _tr('தொடக்க தேதி', 'From date'),
+                        date: _fromDate,
+                        onTap: () => _pickCalculatorDate(from: true),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DateField(
+                        label: _tr('முடிவு தேதி', 'End date'),
+                        date: _endDate,
+                        onTap: () => _pickCalculatorDate(from: false),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -3114,6 +3250,16 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
                               color: Colors.white,
                               fontSize: 25,
                               fontWeight: FontWeight.w800)),
+                      if (_calculationPeriod != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _calculationPeriod!,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .78),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Text(
                           '${_tr('மொத்த தொகை', 'Total amount')}: ${_money(_total!)}',
@@ -3125,6 +3271,34 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
                 ),
               ],
             ],
+          ),
+        ),
+      );
+}
+
+class _DateField extends StatelessWidget {
+  const _DateField({
+    required this.label,
+    required this.date,
+    required this.onTap,
+  });
+
+  final String label;
+  final DateTime date;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            suffixIcon: const Icon(Icons.calendar_month_outlined),
+          ),
+          child: Text(
+            MaterialLocalizations.of(context).formatMediumDate(date),
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
       );
@@ -3333,57 +3507,50 @@ Future<void> _showPersonDetails(
   ValueChanged<Loan> onSharePdf,
   void Function(BuildContext, Loan) onDetails,
 ) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SectionSheetHeader(
-                title: name,
-                subtitle: isTamil
-                    ? '${loans.length} கடன் கணக்குகள்'
-                    : '${loans.length} loan accounts',
-              ),
-              const SizedBox(height: 10),
-              Flexible(
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (pageContext) => Scaffold(
+          appBar: AppBar(title: Text(name)),
+          body: SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
                 child: ListView(
-                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                   children: [
+                    Text(
+                      isTamil
+                          ? '${loans.length} கடன் கணக்குகள்'
+                          : '${loans.length} loan accounts',
+                      style: Theme.of(pageContext).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
                     for (final loan in loans)
                       _PremiumLoanCard(
                         loan: loan,
                         isTamil: isTamil,
                         onEdit: () {
-                          Navigator.pop(sheetContext);
+                          Navigator.pop(pageContext);
                           onEditLoan(loan);
                         },
                         onPayment: () {
-                          Navigator.pop(sheetContext);
+                          Navigator.pop(pageContext);
                           onPayment(loan);
                         },
                         onEditPhone: () {
-                          Navigator.pop(sheetContext);
+                          Navigator.pop(pageContext);
                           onEditPhone(loan);
                         },
                         onSharePdf: () {
-                          Navigator.pop(sheetContext);
+                          Navigator.pop(pageContext);
                           onSharePdf(loan);
                         },
-                        onDetails: () {
-                          Navigator.pop(sheetContext);
-                          onDetails(context, loan);
-                        },
+                        onDetails: () => onDetails(pageContext, loan),
                       ),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -3431,7 +3598,11 @@ Future<void> showLoanShareSheet(
             20,
             0,
             20,
-            20 + MediaQuery.viewInsetsOf(context).bottom,
+            20 +
+                math.max(
+                  MediaQuery.viewInsetsOf(context).bottom,
+                  MediaQuery.viewPaddingOf(context).bottom,
+                ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
