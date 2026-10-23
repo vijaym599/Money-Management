@@ -166,5 +166,25 @@ void main() {
 
       expect(() => Loan.fromJson(json), throwsFormatException);
     });
+
+    test('stores a WhatsApp number and loads older loans without one', () {
+      final loan = Loan(
+        id: 'loan-contact',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 5000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 10, 1),
+        note: '',
+        phone: '9876543210',
+        payments: const [],
+      );
+
+      expect(Loan.fromJson(loan.toJson()).phone, '9876543210');
+
+      final oldData = Map<String, Object?>.from(loan.toJson())..remove('phone');
+      expect(Loan.fromJson(oldData).phone, isEmpty);
+    });
   });
 }

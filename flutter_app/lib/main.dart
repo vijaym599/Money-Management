@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,17 +7,22 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_services.dart';
 import 'models.dart';
+import 'premium_ui.dart';
 
 export 'models.dart';
 
-void main() => runApp(const KadanKanakkuApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const KadanKanakkuApp());
+}
 
-const _loansKey = 'kadan-kanakku-loans-v1';
 const _languageKey = 'kadan-kanakku-language';
 const _themeKey = 'kadan-kanakku-dark-mode';
 const _nameKey = 'kadan-kanakku-profile-name';
 const _phoneKey = 'kadan-kanakku-profile-phone';
+const _notificationsKey = 'kadan-kanakku-notifications';
 
 class KadanKanakkuApp extends StatefulWidget {
   const KadanKanakkuApp({super.key});
@@ -25,11 +31,18 @@ class KadanKanakkuApp extends StatefulWidget {
   State<KadanKanakkuApp> createState() => _KadanKanakkuAppState();
 }
 
-class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
+class _KadanKanakkuAppState extends State<KadanKanakkuApp>
+    with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   bool _loading = true;
   bool _darkMode = false;
+  bool _notificationsEnabled = false;
+  bool _appLockEnabled = false;
+  bool _biometricEnabled = false;
+  bool _biometricAvailable = false;
+  bool _locked = false;
+  bool _authenticating = false;
   String _language = 'ta';
   String _profileName = '';
   String _profilePhone = '';
@@ -46,13 +59,34 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.hidden) &&
+        _appLockEnabled &&
+        !_locked) {
+      setState(() => _locked = true);
+    } else if (state == AppLifecycleState.resumed &&
+        _locked &&
+        _biometricEnabled) {
+      _unlockWithBiometrics();
+    }
   }
 
   Future<void> _load() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-      final rawLoans = preferences.getString(_loansKey);
+      final rawLoans = await SecureDataStore.instance.readLoans(preferences);
       final decoded = rawLoans == null ? <Object?>[] : jsonDecode(rawLoans);
       if (decoded is! List) {
         throw const FormatException('Saved loans are not a list.');
@@ -61,6 +95,11 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
         if (item is! Map) throw const FormatException('Invalid loan record.');
         return Loan.fromJson(Map<String, Object?>.from(item));
       }).toList();
+      final appLockEnabled = await SecureDataStore.instance.hasPin(preferences);
+      final biometricEnabled = appLockEnabled &&
+          await SecureDataStore.instance.biometricEnabled(preferences);
+      final notificationsEnabled =
+          preferences.getBool(_notificationsKey) ?? false;
       if (!mounted) return;
       setState(() {
         _loans = loans;
@@ -68,8 +107,17 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
         _darkMode = preferences.getBool(_themeKey) ?? false;
         _profileName = preferences.getString(_nameKey) ?? '';
         _profilePhone = preferences.getString(_phoneKey) ?? '';
+        _appLockEnabled = appLockEnabled;
+        _biometricEnabled = biometricEnabled;
+        _notificationsEnabled = notificationsEnabled;
+        _locked = appLockEnabled;
         _loading = false;
       });
+      unawaited(_initializeDeviceServices(
+        loans: loans,
+        notificationsEnabled: notificationsEnabled,
+        biometricEnabled: biometricEnabled,
+      ));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -80,6 +128,26 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
         );
       });
       debugPrint('Could not load saved loans: $error');
+    }
+  }
+
+  Future<void> _initializeDeviceServices({
+    required List<Loan> loans,
+    required bool notificationsEnabled,
+    required bool biometricEnabled,
+  }) async {
+    final biometricAvailable =
+        await DeviceAuthenticationService.instance.isAvailable();
+    if (mounted) {
+      setState(() => _biometricAvailable = biometricAvailable);
+    }
+    unawaited(LoanNotificationService.instance.sync(
+      loans: loans,
+      enabled: notificationsEnabled,
+      isTamil: _isTamil,
+    ));
+    if (biometricEnabled && biometricAvailable && mounted) {
+      await _unlockWithBiometrics();
     }
   }
 
@@ -107,8 +175,15 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
 
   Future<void> _saveLoans(List<Loan> loans) async {
     final json = jsonEncode(loans.map((loan) => loan.toJson()).toList());
-    if (await _store(_loansKey, json) && mounted) {
+    final preferences = await SharedPreferences.getInstance();
+    if (await SecureDataStore.instance.writeLoans(preferences, json) &&
+        mounted) {
       setState(() => _loans = loans);
+      await LoanNotificationService.instance.sync(
+        loans: loans,
+        enabled: _notificationsEnabled,
+        isTamil: _isTamil,
+      );
     }
   }
 
@@ -134,20 +209,68 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
     if (payment == null) return;
     final updated = _loans
         .map((item) => item.id == loan.id
-            ? Loan(
-                id: item.id,
-                direction: item.direction,
-                person: item.person,
-                principal: item.principal,
-                rate: item.rate,
-                dueDay: item.dueDay,
-                startDate: item.startDate,
-                note: item.note,
-                payments: [...item.payments, payment],
-              )
+            ? item.copyWith(payments: [...item.payments, payment])
             : item)
         .toList();
     await _saveLoans(updated);
+  }
+
+  Future<void> _editLoanPhone(Loan loan) async {
+    final formKey = GlobalKey<FormState>();
+    final controller = TextEditingController(text: loan.phone);
+    final phone = await showDialog<String>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('தொடர்பு எண்', 'Contact number')),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.phone,
+            maxLength: 18,
+            decoration: InputDecoration(
+              labelText: _tr('WhatsApp எண்', 'WhatsApp number'),
+              hintText: '+91 98765 43210',
+              prefixIcon: const Icon(Icons.phone_outlined),
+            ),
+            validator: (value) {
+              if ((value ?? '').trim().isEmpty) return null;
+              final digits = value!.replaceAll(RegExp(r'\D'), '');
+              if (digits.length < 10 || digits.length > 15) {
+                return _tr(
+                  'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
+                  'Enter a valid phone number',
+                );
+              }
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(dialogContext, controller.text.trim());
+              }
+            },
+            child: Text(_tr('சேமி', 'Save')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (phone == null) return;
+    await _saveLoans(
+      _loans
+          .map(
+              (item) => item.id == loan.id ? item.copyWith(phone: phone) : item)
+          .toList(),
+    );
   }
 
   Future<void> _deleteLoan(Loan loan) async {
@@ -179,6 +302,11 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
   Future<void> _changeLanguage(String language) async {
     if (!await _store(_languageKey, language) || !mounted) return;
     setState(() => _language = language);
+    await LoanNotificationService.instance.sync(
+      loans: _loans,
+      enabled: _notificationsEnabled,
+      isTamil: language == 'ta',
+    );
   }
 
   Future<void> _changeTheme(bool darkMode) async {
@@ -207,6 +335,116 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
         _message(_tr(
           'சுயவிவரத்தைச் சேமிக்க முடியவில்லை.',
           'Could not save the profile.',
+        ));
+      }
+    }
+  }
+
+  Future<bool> _unlockWithPin(String pin) async {
+    final preferences = await SharedPreferences.getInstance();
+    final valid = await SecureDataStore.instance.verifyPin(preferences, pin);
+    if (valid && mounted) setState(() => _locked = false);
+    return valid;
+  }
+
+  Future<void> _unlockWithBiometrics() async {
+    if (_authenticating || !_locked || !_biometricEnabled) return;
+    _authenticating = true;
+    final authenticated = await DeviceAuthenticationService.instance
+        .authenticate(isTamil: _isTamil);
+    _authenticating = false;
+    if (authenticated && mounted) setState(() => _locked = false);
+  }
+
+  Future<void> _configureSecurity() async {
+    final change = await showDialog<_SecurityChange>(
+      context: _appContext,
+      builder: (_) => _SecurityDialog(
+        isTamil: _isTamil,
+        lockEnabled: _appLockEnabled,
+        biometricEnabled: _biometricEnabled,
+        biometricAvailable: _biometricAvailable,
+      ),
+    );
+    if (change == null) return;
+
+    final preferences = await SharedPreferences.getInstance();
+    if (_appLockEnabled) {
+      final valid = await SecureDataStore.instance
+          .verifyPin(preferences, change.currentPin);
+      if (!valid) {
+        _message(
+            _tr('தற்போதைய PIN தவறாக உள்ளது.', 'Current PIN is incorrect.'));
+        return;
+      }
+    }
+
+    if (change.disable) {
+      await SecureDataStore.instance.clearPin(preferences);
+      if (!mounted) return;
+      setState(() {
+        _appLockEnabled = false;
+        _biometricEnabled = false;
+        _locked = false;
+      });
+      _message(_tr('App lock நிறுத்தப்பட்டது.', 'App lock disabled.'));
+      return;
+    }
+
+    if (change.newPin.isNotEmpty) {
+      await SecureDataStore.instance.setPin(preferences, change.newPin);
+    }
+    await SecureDataStore.instance
+        .setBiometricEnabled(preferences, change.biometricEnabled);
+    if (!mounted) return;
+    setState(() {
+      _appLockEnabled = true;
+      _biometricEnabled = change.biometricEnabled;
+    });
+    _message(_tr(
+      'PIN மற்றும் பாதுகாப்பு அமைப்புகள் சேமிக்கப்பட்டன.',
+      'PIN and security settings saved.',
+    ));
+  }
+
+  Future<void> _changeNotifications(bool enabled) async {
+    var next = enabled;
+    if (enabled) {
+      next = await LoanNotificationService.instance.requestPermission();
+      if (!next) {
+        _message(_tr(
+          'Notification அனுமதி வழங்கப்படவில்லை.',
+          'Notification permission was not granted.',
+        ));
+      }
+    }
+    if (!await _store(_notificationsKey, next) || !mounted) return;
+    setState(() => _notificationsEnabled = next);
+    await LoanNotificationService.instance.sync(
+      loans: _loans,
+      enabled: next,
+      isTamil: _isTamil,
+    );
+    if (next) {
+      _message(_tr(
+        'Due date-க்கு ஒரு நாள் முன்பும் அன்றும் reminder வரும்.',
+        'Reminders will arrive one day before and on each due date.',
+      ));
+    }
+  }
+
+  Future<void> _shareLoanPdf(Loan loan) async {
+    try {
+      await PdfStatementService.instance.shareLoan(
+        loan: loan,
+        isTamil: _isTamil,
+      );
+    } catch (error) {
+      debugPrint('Could not create PDF: $error');
+      if (mounted) {
+        _message(_tr(
+          'PDF அறிக்கையை உருவாக்க முடியவில்லை.',
+          'Could not create the PDF statement.',
         ));
       }
     }
@@ -326,8 +564,9 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
   Widget build(BuildContext context) {
     final locale = Locale(_language);
     final colors = ColorScheme.fromSeed(
-      seedColor: const Color(0xff176b58),
+      seedColor: const Color(0xff1769ff),
       brightness: _darkMode ? Brightness.dark : Brightness.light,
+      surface: _darkMode ? const Color(0xff101a2b) : Colors.white,
     );
     return MaterialApp(
       navigatorKey: _navigatorKey,
@@ -345,51 +584,449 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp> {
         useMaterial3: true,
         colorScheme: colors,
         scaffoldBackgroundColor:
-            _darkMode ? const Color(0xff101511) : const Color(0xfff6f7f2),
+            _darkMode ? const Color(0xff081321) : const Color(0xfff5f7fb),
+        fontFamily: 'sans-serif',
+        appBarTheme: AppBarTheme(
+          elevation: 0,
+          centerTitle: false,
+          backgroundColor: Colors.transparent,
+          foregroundColor: colors.onSurface,
+          surfaceTintColor: Colors.transparent,
+        ),
         cardTheme: CardThemeData(
-          color: _darkMode ? const Color(0xff1c241e) : Colors.white,
+          color: _darkMode ? const Color(0xff101a2b) : Colors.white,
           elevation: 0,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             side: BorderSide(
               color: colors.outlineVariant.withValues(alpha: 0.5),
             ),
           ),
         ),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor:
+              _darkMode ? const Color(0xff142238) : const Color(0xfff6f8fc),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: colors.outlineVariant),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: const BorderSide(color: Color(0xff1769ff), width: 1.5),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          height: 72,
+          elevation: 8,
+          backgroundColor: _darkMode ? const Color(0xff101a2b) : Colors.white,
+          indicatorColor: const Color(0xffe4edff),
+          labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+                color: states.contains(WidgetState.selected)
+                    ? const Color(0xff1769ff)
+                    : colors.onSurfaceVariant,
+                fontSize: 11,
+                fontWeight: states.contains(WidgetState.selected)
+                    ? FontWeight.w700
+                    : FontWeight.w500,
+              )),
+          iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+                color: states.contains(WidgetState.selected)
+                    ? const Color(0xff1769ff)
+                    : colors.onSurfaceVariant,
+              )),
+        ),
+        dialogTheme: DialogThemeData(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          showDragHandle: true,
         ),
       ),
       home: _loading
-          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _selectedPage == 0
-              ? _HomePage(
-                  loans: _loans,
+          ? const PremiumSplash()
+          : _locked
+              ? AppLockScreen(
                   isTamil: _isTamil,
-                  profileName: _profileName,
-                  loadError: _loadError,
-                  onAdd: _addLoan,
-                  onPayment: _addPayment,
-                  onDelete: _deleteLoan,
-                  selectedPage: _selectedPage,
-                  onPageChanged: (page) => setState(() => _selectedPage = page),
-                  onBackup: _showBackup,
+                  biometricEnabled: _biometricEnabled && _biometricAvailable,
+                  onPinSubmitted: _unlockWithPin,
+                  onBiometric: _unlockWithBiometrics,
                 )
-              : _SettingsPage(
+              : PremiumAppShell(
+                  loans: _loans,
                   isTamil: _isTamil,
                   darkMode: _darkMode,
                   profileName: _profileName,
                   profilePhone: _profilePhone,
+                  loadError: _loadError,
+                  selectedPage: _selectedPage,
+                  onPageChanged: (page) => setState(() => _selectedPage = page),
+                  onAddLoan: _addLoan,
+                  onPayment: _addPayment,
+                  onEditPhone: _editLoanPhone,
+                  onSharePdf: _shareLoanPdf,
+                  onDelete: _deleteLoan,
+                  onDetails: (context, loan) =>
+                      _showDetails(context, loan, _isTamil),
                   onLanguageChanged: _changeLanguage,
                   onThemeChanged: _changeTheme,
                   onProfileSaved: _saveProfile,
+                  appLockEnabled: _appLockEnabled,
+                  biometricEnabled: _biometricEnabled,
+                  biometricAvailable: _biometricAvailable,
+                  notificationsEnabled: _notificationsEnabled,
+                  onConfigureSecurity: _configureSecurity,
+                  onNotificationsChanged: _changeNotifications,
                   onBackup: _showBackup,
-                  selectedPage: _selectedPage,
-                  onPageChanged: (page) => setState(() => _selectedPage = page),
                 ),
     );
   }
+}
+
+class AppLockScreen extends StatefulWidget {
+  const AppLockScreen({
+    required this.isTamil,
+    required this.biometricEnabled,
+    required this.onPinSubmitted,
+    required this.onBiometric,
+    super.key,
+  });
+
+  final bool isTamil;
+  final bool biometricEnabled;
+  final Future<bool> Function(String pin) onPinSubmitted;
+  final VoidCallback onBiometric;
+
+  @override
+  State<AppLockScreen> createState() => _AppLockScreenState();
+}
+
+class _AppLockScreenState extends State<AppLockScreen> {
+  final _pin = TextEditingController();
+  bool _checking = false;
+  String? _error;
+
+  String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_pin.text.length < 4 || _checking) return;
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
+    final valid = await widget.onPinSubmitted(_pin.text);
+    if (!mounted || valid) return;
+    setState(() {
+      _checking = false;
+      _error = _tr('PIN தவறாக உள்ளது', 'Incorrect PIN');
+      _pin.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF081B3A), Color(0xFF1769FF)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  child: Card(
+                    elevation: 18,
+                    child: Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircleAvatar(
+                            radius: 34,
+                            child: Icon(Icons.lock_rounded, size: 32),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            _tr('கடன் கணக்கு பூட்டப்பட்டுள்ளது',
+                                'Money MM is locked'),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _tr('திறக்க உங்கள் PIN-ஐ உள்ளிடவும்',
+                                'Enter your PIN to continue'),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 22),
+                          TextField(
+                            controller: _pin,
+                            autofocus: !widget.biometricEnabled,
+                            obscureText: true,
+                            maxLength: 6,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
+                            textAlign: TextAlign.center,
+                            onSubmitted: (_) => _submit(),
+                            decoration: InputDecoration(
+                              labelText: 'PIN',
+                              errorText: _error,
+                              counterText: '',
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: _checking ? null : _submit,
+                              child: _checking
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(_tr('திற', 'Unlock')),
+                            ),
+                          ),
+                          if (widget.biometricEnabled) ...[
+                            const SizedBox(height: 10),
+                            TextButton.icon(
+                              onPressed: widget.onBiometric,
+                              icon: const Icon(Icons.fingerprint_rounded),
+                              label: Text(_tr('கைரேகை மூலம் திற',
+                                  'Unlock with biometrics')),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _SecurityChange {
+  const _SecurityChange({
+    required this.currentPin,
+    required this.newPin,
+    required this.biometricEnabled,
+    required this.disable,
+  });
+
+  final String currentPin;
+  final String newPin;
+  final bool biometricEnabled;
+  final bool disable;
+}
+
+class _SecurityDialog extends StatefulWidget {
+  const _SecurityDialog({
+    required this.isTamil,
+    required this.lockEnabled,
+    required this.biometricEnabled,
+    required this.biometricAvailable,
+  });
+
+  final bool isTamil;
+  final bool lockEnabled;
+  final bool biometricEnabled;
+  final bool biometricAvailable;
+
+  @override
+  State<_SecurityDialog> createState() => _SecurityDialogState();
+}
+
+class _SecurityDialogState extends State<_SecurityDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _currentPin = TextEditingController();
+  final _newPin = TextEditingController();
+  final _confirmPin = TextEditingController();
+  late bool _biometric = widget.biometricEnabled;
+  bool _disable = false;
+
+  String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  @override
+  void dispose() {
+    _currentPin.dispose();
+    _newPin.dispose();
+    _confirmPin.dispose();
+    super.dispose();
+  }
+
+  String? _pinValidator(String? value, {required bool required}) {
+    if ((value ?? '').isEmpty && !required) return null;
+    if (!RegExp(r'^\d{4,6}$').hasMatch(value ?? '')) {
+      return _tr('4 முதல் 6 இலக்க PIN தேவை', 'Use a 4 to 6 digit PIN');
+    }
+    return null;
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    if (!_disable && _newPin.text != _confirmPin.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_tr('PIN பொருந்தவில்லை', 'PINs do not match'))),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      _SecurityChange(
+        currentPin: _currentPin.text,
+        newPin: _newPin.text,
+        biometricEnabled: _biometric,
+        disable: _disable,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(_tr('App பாதுகாப்பு', 'App security')),
+        content: SizedBox(
+          width: 420,
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.lockEnabled)
+                    TextFormField(
+                      controller: _currentPin,
+                      obscureText: true,
+                      maxLength: 6,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: _tr('தற்போதைய PIN', 'Current PIN'),
+                        counterText: '',
+                      ),
+                      validator: (value) =>
+                          _pinValidator(value, required: true),
+                    ),
+                  if (widget.lockEnabled)
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title:
+                          Text(_tr('App lock-ஐ நிறுத்து', 'Disable app lock')),
+                      value: _disable,
+                      onChanged: (value) => setState(() => _disable = value),
+                    ),
+                  if (!_disable) ...[
+                    TextFormField(
+                      controller: _newPin,
+                      obscureText: true,
+                      maxLength: 6,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: widget.lockEnabled
+                            ? _tr('புதிய PIN (மாற்ற மட்டும்)',
+                                'New PIN (only to change)')
+                            : _tr('புதிய PIN', 'New PIN'),
+                        counterText: '',
+                      ),
+                      validator: (value) => _pinValidator(
+                        value,
+                        required: !widget.lockEnabled,
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _confirmPin,
+                      obscureText: true,
+                      maxLength: 6,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: _tr('PIN உறுதிப்படுத்தவும்', 'Confirm PIN'),
+                        counterText: '',
+                      ),
+                      validator: (value) => _newPin.text.isEmpty
+                          ? null
+                          : _pinValidator(value, required: true),
+                    ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(_tr('Biometric unlock', 'Biometric unlock')),
+                      subtitle: Text(widget.biometricAvailable
+                          ? _tr('கைரேகை / Face unlock பயன்படுத்தவும்',
+                              'Use fingerprint or face unlock')
+                          : _tr('இந்த சாதனத்தில் biometric கிடைக்கவில்லை',
+                              'Biometrics are unavailable on this device')),
+                      secondary: const Icon(Icons.fingerprint_rounded),
+                      value: _biometric && widget.biometricAvailable,
+                      onChanged: widget.biometricAvailable
+                          ? (value) => setState(() => _biometric = value)
+                          : null,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: _save,
+            child: Text(_tr('சேமி', 'Save')),
+          ),
+        ],
+      );
 }
 
 class _HomePage extends StatefulWidget {
@@ -1113,11 +1750,13 @@ class LoanFormDialog extends StatefulWidget {
 class _LoanFormDialogState extends State<LoanFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _person = TextEditingController();
+  final _phone = TextEditingController();
   final _principal = TextEditingController();
   final _rate = TextEditingController(text: '2');
   final _dueDay = TextEditingController(text: '5');
   final _note = TextEditingController();
   String _direction = 'given';
+  bool _interestFree = false;
   DateTime _startDate = DateTime.now();
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
@@ -1125,6 +1764,7 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
   @override
   void dispose() {
     _person.dispose();
+    _phone.dispose();
     _principal.dispose();
     _rate.dispose();
     _dueDay.dispose();
@@ -1154,6 +1794,7 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         direction: _direction,
         person: _person.text.trim(),
+        phone: _phone.text.trim(),
         principal: principal,
         rate: rate,
         dueDay: dueDay,
@@ -1192,8 +1833,13 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                       ),
                     ],
                     selected: {_direction},
-                    onSelectionChanged: (value) =>
-                        setState(() => _direction = value.first),
+                    onSelectionChanged: (value) => setState(() {
+                      _direction = value.first;
+                      if (_direction == 'taken' && _interestFree) {
+                        _interestFree = false;
+                        _rate.text = '2';
+                      }
+                    }),
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
@@ -1205,6 +1851,28 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                     ),
                     validator: (value) =>
                         _required(value, _tr('பெயரை', 'Name')),
+                  ),
+                  TextFormField(
+                    controller: _phone,
+                    keyboardType: TextInputType.phone,
+                    maxLength: 18,
+                    decoration: InputDecoration(
+                      labelText: _tr('WhatsApp எண் (விருப்பம்)',
+                          'WhatsApp number (optional)'),
+                      hintText: '+91 98765 43210',
+                      prefixIcon: const Icon(Icons.phone_outlined),
+                    ),
+                    validator: (value) {
+                      if ((value ?? '').trim().isEmpty) return null;
+                      final digits = value!.replaceAll(RegExp(r'\D'), '');
+                      if (digits.length < 10 || digits.length > 15) {
+                        return _tr(
+                          'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
+                          'Enter a valid phone number',
+                        );
+                      }
+                      return null;
+                    },
                   ),
                   TextFormField(
                     controller: _principal,
@@ -1224,46 +1892,68 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _rate,
-                    onChanged: (_) => setState(() {}),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                        labelText: _tr('மாத வட்டி (%)', 'Monthly rate (%)')),
-                    validator: (value) {
-                      final number = double.tryParse(value ?? '');
-                      if (number == null ||
-                          !number.isFinite ||
-                          number < 0 ||
-                          number > 100) {
-                        return _tr('0 முதல் 100 வரை உள்ளிடவும்',
-                            'Enter a value from 0 to 100');
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _dueDay,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText:
-                          _tr('வட்டி செலுத்தும் தேதி (1–31)', 'Due day (1–31)'),
+                  if (_direction == 'given') ...[
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title:
+                          Text(_tr('வட்டி இல்லா கடன்', 'Interest-free loan')),
+                      subtitle: Text(_tr(
+                        'இந்த நபரிடம் வட்டி வசூலிக்கப்படாது',
+                        'No interest will be charged to this person',
+                      )),
+                      secondary: const Icon(Icons.favorite_outline_rounded),
+                      value: _interestFree,
+                      onChanged: (value) => setState(() {
+                        _interestFree = value;
+                        _rate.text = value ? '0' : '2';
+                      }),
                     ),
-                    validator: (value) {
-                      final number = int.tryParse(value ?? '');
-                      if (number == null || number < 1 || number > 31) {
-                        return _tr('1 முதல் 31 வரை உள்ளிடவும்',
-                            'Enter a day from 1 to 31');
-                      }
-                      return null;
-                    },
-                  ),
+                    const SizedBox(height: 4),
+                  ],
+                  if (!_interestFree) ...[
+                    TextFormField(
+                      controller: _rate,
+                      onChanged: (_) => setState(() {}),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                          labelText: _tr('மாத வட்டி (%)', 'Monthly rate (%)')),
+                      validator: (value) {
+                        final number = double.tryParse(value ?? '');
+                        if (number == null ||
+                            !number.isFinite ||
+                            number < 0 ||
+                            number > 100) {
+                          return _tr('0 முதல் 100 வரை உள்ளிடவும்',
+                              'Enter a value from 0 to 100');
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _dueDay,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: _tr(
+                            'வட்டி செலுத்தும் தேதி (1–31)', 'Due day (1–31)'),
+                      ),
+                      validator: (value) {
+                        final number = int.tryParse(value ?? '');
+                        if (number == null || number < 1 || number > 31) {
+                          return _tr('1 முதல் 31 வரை உள்ளிடவும்',
+                              'Enter a day from 1 to 31');
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(_tr('தொடங்கிய தேதி', 'Start date')),
+                    title: Text(_interestFree
+                        ? _tr('கடன் கொடுத்த தேதி', 'Date lent')
+                        : _tr('தொடங்கிய தேதி', 'Start date')),
                     subtitle: Text(MaterialLocalizations.of(context)
                         .formatMediumDate(_startDate)),
                     trailing: const Icon(Icons.calendar_month),
@@ -1276,7 +1966,8 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                       labelText: _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
                     ),
                   ),
-                  if (_principal.text.isNotEmpty &&
+                  if (!_interestFree &&
+                      _principal.text.isNotEmpty &&
                       _rate.text.isNotEmpty &&
                       double.tryParse(_principal.text) != null &&
                       double.tryParse(_rate.text) != null)
@@ -1532,6 +2223,11 @@ Future<void> _showDetails(BuildContext context, Loan loan, bool isTamil) async {
                       : 'நான் வாங்கியது',
                   loan.direction == 'given' ? 'Lent' : 'Borrowed'),
             ),
+            if (loan.phone.isNotEmpty)
+              _DetailLine(
+                label: tr('WhatsApp எண்', 'WhatsApp number'),
+                value: loan.phone,
+              ),
             _DetailLine(
               label: tr('தொடக்க முதல்தொகை', 'Original principal'),
               value: money(loan.principal),

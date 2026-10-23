@@ -1,7 +1,7 @@
 name: kadan_kanakku
 description: Tamil loan and monthly interest tracker for Android.
 publish_to: none
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -14,11 +14,29 @@ dependencies:
   characters: ^1.4.0
   intl: ^0.20.2
   shared_preferences: ^2.5.3
+  url_launcher: ^6.3.3
+  flutter_secure_storage: ^11.2.0
+  local_auth: ^3.0.2
+  flutter_local_notifications: ^22.3.2
+  timezone: ^0.11.2
+  pdf: ^3.13.1
+  printing: ^5.15.1
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_secure_storage_platform_interface: ^2.1.1
+
+# 2.6.0 uses an Objective-C native build hook that cannot quote this
+# workspace's Windows path with spaces. 2.5.1 is the official plugin-based
+# implementation and stays API-compatible for this Android application.
+dependency_overrides:
+  path_provider_foundation: 2.5.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/NotoSansTamil.ttf
+    - assets/fonts/OFL-NotoSansTamil.txt

@@ -80,6 +80,7 @@ class Loan {
     required this.startDate,
     required this.note,
     required this.payments,
+    this.phone = '',
   });
 
   final String id;
@@ -91,6 +92,24 @@ class Loan {
   final DateTime startDate;
   final String note;
   final List<LoanPayment> payments;
+  final String phone;
+
+  Loan copyWith({
+    String? phone,
+    List<LoanPayment>? payments,
+  }) =>
+      Loan(
+        id: id,
+        direction: direction,
+        person: person,
+        principal: principal,
+        rate: rate,
+        dueDay: dueDay,
+        startDate: startDate,
+        note: note,
+        payments: payments ?? this.payments,
+        phone: phone ?? this.phone,
+      );
 
   double get outstanding => math.max(
         0,
@@ -203,6 +222,7 @@ class Loan {
         'dueDay': dueDay,
         'startDate': _dateKey(startDate),
         'note': note,
+        'phone': phone,
         'payments': payments.map((payment) => payment.toJson()).toList(),
       };
 
@@ -230,6 +250,7 @@ class Loan {
         dueDay > 31 ||
         json['startDate'] is! String ||
         (json['note'] != null && json['note'] is! String) ||
+        (json['phone'] != null && json['phone'] is! String) ||
         rawPayments is! List) {
       throw const FormatException('Invalid loan record.');
     }
@@ -259,6 +280,7 @@ class Loan {
       dueDay: dueDay,
       startDate: startDate,
       note: json['note'] as String? ?? '',
+      phone: (json['phone'] as String? ?? '').trim(),
       payments: payments,
     );
     final interestMonths = payments
