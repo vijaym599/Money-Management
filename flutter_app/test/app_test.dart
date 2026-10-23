@@ -50,6 +50,11 @@ void main() {
     await tester.tap(find.text('பதிவு செய்'));
     await tester.pumpAndSettle();
 
+    expect(find.text('பணம் பெற்ற ரசீது'), findsOneWidget);
+    expect(find.text('English'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'நகலெடு'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'WhatsApp'), findsOneWidget);
+
     final stored = jsonDecode(
       secureData[SecureDataStore.loansKey]!,
     ) as List<dynamic>;
@@ -146,8 +151,8 @@ void main() {
 
     expect(find.text('வட்டி இல்லா கடன்கள்'), findsOneWidget);
     expect(find.text('முருகன்'), findsOneWidget);
-    expect(find.text('கொடுத்த தொகை'), findsOneWidget);
-    expect(find.text('கொடுத்த தேதி'), findsOneWidget);
+    expect(find.text('முதல்தொகை நிலுவை'), findsOneWidget);
+    expect(find.text('கடன் தேதி'), findsOneWidget);
     expect(find.text('₹5,000'), findsWidgets);
   });
 

@@ -186,5 +186,142 @@ void main() {
       final oldData = Map<String, Object?>.from(loan.toJson())..remove('phone');
       expect(Loan.fromJson(oldData).phone, isEmpty);
     });
+
+    test('keeps old records compatible and uses a separate interest date', () {
+      final oldData = <String, Object?>{
+        'id': 'old-loan',
+        'direction': 'given',
+        'person': 'Kumar',
+        'principal': 10000,
+        'rate': 2,
+        'dueDay': 5,
+        'startDate': '2026-01-10',
+        'note': '',
+        'payments': <Object?>[],
+      };
+
+      final restoredOldLoan = Loan.fromJson(oldData);
+      expect(restoredOldLoan.interestStartDate, DateTime(2026, 1, 10));
+      expect(restoredOldLoan.firstInterestDueDate, DateTime(2026, 2, 5));
+
+      final updatedLoan = Loan(
+        id: 'new-loan',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 10000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 1, 10),
+        interestStartDate: DateTime(2026, 3, 1),
+        note: '',
+        payments: const [],
+      );
+
+      expect(updatedLoan.interestForMonth('2026-02'), 0);
+      expect(updatedLoan.interestForMonth('2026-03'), 200);
+      expect(
+        Loan.fromJson(updatedLoan.toJson()).interestStartDate,
+        DateTime(2026, 3, 1),
+      );
+    });
+
+    test('uses a custom first due date and clamps later month-end dates', () {
+      final loan = Loan(
+        id: 'custom-dates',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 10000,
+        rate: 2,
+        dueDay: 31,
+        startDate: DateTime(2026, 1, 10),
+        interestStartDate: DateTime(2026, 1, 20),
+        firstInterestDueDate: DateTime(2026, 2, 15),
+        note: '',
+        payments: const [],
+      );
+
+      expect(loan.statusFor('2026-01').dueDate, DateTime(2026, 2, 15));
+      expect(loan.statusFor('2026-02').dueDate, DateTime(2026, 2, 28));
+    });
+
+    test('editing freezes paid periods and recalculates unpaid periods', () {
+      final payment = LoanPayment(
+        id: 'partial-interest',
+        type: 'interest',
+        amount: 50,
+        date: DateTime(2026, 1, 6),
+        month: '2026-01',
+      );
+      final original = Loan(
+        id: 'safe-edit',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 10000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 1, 1),
+        interestStartDate: DateTime(2026, 1, 1),
+        firstInterestDueDate: DateTime(2026, 1, 5),
+        note: '',
+        payments: [payment],
+      );
+
+      final edited = original.withCalculationSettings(
+        person: original.person,
+        phone: original.phone,
+        rate: 3,
+        dueDay: 10,
+        startDate: original.startDate,
+        interestStartDate: DateTime(2026, 2, 1),
+        firstInterestDueDate: DateTime(2026, 2, 10),
+        note: original.note,
+      );
+
+      expect(identical(edited.payments.single, payment), isTrue);
+      expect(edited.payments, hasLength(1));
+      expect(edited.statusFor('2026-01').expected, 200);
+      expect(edited.statusFor('2026-01').remaining, 150);
+      expect(edited.statusFor('2026-01').dueDate, DateTime(2026, 1, 5));
+      expect(edited.interestForMonth('2026-02'), 300);
+    });
+
+    test('zero-interest edit preserves only historical paid-period balance',
+        () {
+      final original = Loan(
+        id: 'zero-edit',
+        direction: 'given',
+        person: 'Meena',
+        principal: 10000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 1, 1),
+        note: '',
+        payments: [
+          LoanPayment(
+            id: 'partial',
+            type: 'interest',
+            amount: 50,
+            date: DateTime(2026, 1, 5),
+            month: '2026-01',
+          ),
+        ],
+      );
+      final edited = original.withCalculationSettings(
+        person: original.person,
+        phone: original.phone,
+        rate: 0,
+        dueDay: 5,
+        startDate: original.startDate,
+        interestStartDate: original.interestStartDate,
+        firstInterestDueDate: original.firstInterestDueDate,
+        note: original.note,
+      );
+      final restored = Loan.fromJson(edited.toJson());
+
+      expect(restored.monthsThrough(DateTime(2026, 3, 1)), ['2026-01']);
+      expect(restored.interestOutstanding(today: DateTime(2026, 3, 1)), 150);
+      expect(restored.payments, hasLength(1));
+      expect(restored.interestPeriodSnapshots, contains('2026-01'));
+    });
   });
 }

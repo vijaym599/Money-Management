@@ -69,8 +69,37 @@ class InterestStatus {
   final int overdueDays;
 }
 
+class InterestPeriodSnapshot {
+  const InterestPeriodSnapshot({
+    required this.expected,
+    required this.dueDate,
+  });
+
+  final double expected;
+  final DateTime dueDate;
+
+  Map<String, Object?> toJson() => {
+        'expected': expected,
+        'dueDate': _dateKey(dueDate),
+      };
+
+  factory InterestPeriodSnapshot.fromJson(Map<String, Object?> json) {
+    final expected = json['expected'];
+    if (expected is! num ||
+        !expected.isFinite ||
+        expected < 0 ||
+        json['dueDate'] is! String) {
+      throw const FormatException('Invalid interest period snapshot.');
+    }
+    return InterestPeriodSnapshot(
+      expected: expected.toDouble(),
+      dueDate: _parseDate(json['dueDate']! as String),
+    );
+  }
+}
+
 class Loan {
-  const Loan({
+  Loan({
     required this.id,
     required this.direction,
     required this.person,
@@ -78,10 +107,20 @@ class Loan {
     required this.rate,
     required this.dueDay,
     required this.startDate,
+    DateTime? interestStartDate,
+    DateTime? firstInterestDueDate,
     required this.note,
     required this.payments,
     this.phone = '',
-  });
+    Map<String, InterestPeriodSnapshot> interestPeriodSnapshots = const {},
+  })  : interestStartDate = interestStartDate ?? startDate,
+        firstInterestDueDate = firstInterestDueDate ??
+            _scheduledDueDate(
+              _monthKey(interestStartDate ?? startDate),
+              dueDay,
+              interestStartDate ?? startDate,
+            ),
+        interestPeriodSnapshots = Map.unmodifiable(interestPeriodSnapshots);
 
   final String id;
   final String direction;
@@ -90,26 +129,88 @@ class Loan {
   final double rate;
   final int dueDay;
   final DateTime startDate;
+  final DateTime interestStartDate;
+  final DateTime firstInterestDueDate;
   final String note;
   final List<LoanPayment> payments;
   final String phone;
+  final Map<String, InterestPeriodSnapshot> interestPeriodSnapshots;
 
   Loan copyWith({
+    String? direction,
+    String? person,
+    double? principal,
+    double? rate,
+    int? dueDay,
+    DateTime? startDate,
     String? phone,
     List<LoanPayment>? payments,
+    DateTime? interestStartDate,
+    DateTime? firstInterestDueDate,
+    String? note,
+    Map<String, InterestPeriodSnapshot>? interestPeriodSnapshots,
   }) =>
       Loan(
         id: id,
-        direction: direction,
-        person: person,
-        principal: principal,
-        rate: rate,
-        dueDay: dueDay,
-        startDate: startDate,
-        note: note,
+        direction: direction ?? this.direction,
+        person: person ?? this.person,
+        principal: principal ?? this.principal,
+        rate: rate ?? this.rate,
+        dueDay: dueDay ?? this.dueDay,
+        startDate: startDate ?? this.startDate,
+        interestStartDate: interestStartDate ?? this.interestStartDate,
+        firstInterestDueDate: firstInterestDueDate ?? this.firstInterestDueDate,
+        note: note ?? this.note,
         payments: payments ?? this.payments,
         phone: phone ?? this.phone,
+        interestPeriodSnapshots:
+            interestPeriodSnapshots ?? this.interestPeriodSnapshots,
       );
+
+  /// Applies new calculation settings without rewriting any transaction.
+  /// Interest periods that already contain a payment are frozen to their
+  /// original expected amount and due date, while unpaid periods recalculate.
+  Loan withCalculationSettings({
+    required String person,
+    required String phone,
+    required double rate,
+    required int dueDay,
+    required DateTime startDate,
+    required DateTime interestStartDate,
+    required DateTime firstInterestDueDate,
+    required String note,
+  }) {
+    final snapshots = Map<String, InterestPeriodSnapshot>.from(
+      interestPeriodSnapshots,
+    );
+    for (final month in payments
+        .where((payment) => payment.type == 'interest')
+        .map((payment) => payment.month!)
+        .toSet()) {
+      snapshots.putIfAbsent(
+        month,
+        () => InterestPeriodSnapshot(
+          expected: interestForMonth(month),
+          dueDate: statusFor(month).dueDate,
+        ),
+      );
+    }
+    return Loan(
+      id: id,
+      direction: direction,
+      person: person,
+      principal: principal,
+      rate: rate,
+      dueDay: dueDay,
+      startDate: startDate,
+      interestStartDate: interestStartDate,
+      firstInterestDueDate: firstInterestDueDate,
+      note: note,
+      payments: payments,
+      phone: phone,
+      interestPeriodSnapshots: snapshots,
+    );
+  }
 
   double get outstanding => math.max(
         0,
@@ -121,8 +222,35 @@ class Loan {
 
   double get monthlyInterest => outstanding * rate / 100;
 
+  bool get hasInterestLedger =>
+      rate > 0 ||
+      interestPeriodSnapshots.isNotEmpty ||
+      payments.any((payment) => payment.type == 'interest');
+
+  DateTime? get lastPaymentDate {
+    if (payments.isEmpty) return null;
+    return payments
+        .map((payment) => payment.date)
+        .reduce((latest, date) => date.isAfter(latest) ? date : latest);
+  }
+
+  double interestOutstanding({DateTime? today}) =>
+      overdueInterest(today: today);
+
+  double totalOutstanding({DateTime? today}) =>
+      outstanding + interestOutstanding(today: today);
+
+  bool hasPartialPayments({DateTime? today}) =>
+      payments.isNotEmpty && totalOutstanding(today: today) > 0.009;
+
+  bool isCompleted({DateTime? today}) =>
+      totalOutstanding(today: today) <= 0.009;
+
   double interestForMonth(String month) {
-    if (!_isMonth(month) || month.compareTo(_monthKey(startDate)) < 0) {
+    if (!_isMonth(month)) return 0;
+    final snapshot = interestPeriodSnapshots[month];
+    if (snapshot != null) return snapshot.expected;
+    if (rate <= 0 || month.compareTo(_monthKey(interestStartDate)) < 0) {
       return 0;
     }
     final monthStart = '$month-01';
@@ -139,14 +267,27 @@ class Loan {
       .fold<double>(0, (sum, payment) => sum + payment.amount);
 
   List<String> monthsThrough(DateTime date) {
-    var cursor = DateTime(startDate.year, startDate.month);
     final last = DateTime(date.year, date.month);
-    final result = <String>[];
-    while (!cursor.isAfter(last)) {
-      result.add(_monthKey(cursor));
-      cursor = DateTime(cursor.year, cursor.month + 1);
+    final lastKey = _monthKey(last);
+    final result = <String>{};
+    if (rate > 0) {
+      var cursor = DateTime(interestStartDate.year, interestStartDate.month);
+      while (!cursor.isAfter(last)) {
+        result.add(_monthKey(cursor));
+        cursor = DateTime(cursor.year, cursor.month + 1);
+      }
     }
-    return result;
+    result.addAll(
+      interestPeriodSnapshots.keys
+          .where((month) => month.compareTo(lastKey) <= 0),
+    );
+    result.addAll(payments
+        .where((payment) =>
+            payment.type == 'interest' &&
+            payment.month!.compareTo(lastKey) <= 0)
+        .map((payment) => payment.month!));
+    final sorted = result.toList()..sort();
+    return sorted;
   }
 
   double overdueInterest({DateTime? today}) {
@@ -177,22 +318,11 @@ class Loan {
     if (!_isMonth(month)) {
       throw const FormatException('Month must use YYYY-MM format.');
     }
-    final parts = month.split('-').map(int.parse).toList();
-    final year = parts[0];
-    final monthNumber = parts[1];
-    final lastDay = DateTime(year, monthNumber + 1, 0).day;
-    var dueDate = DateTime(year, monthNumber, math.min(dueDay, lastDay));
-    if (startDate.isAfter(dueDate)) {
-      final nextMonth = DateTime(year, monthNumber + 1, 1);
-      dueDate = DateTime(
-        nextMonth.year,
-        nextMonth.month,
-        math.min(
-          dueDay,
-          DateTime(nextMonth.year, nextMonth.month + 1, 0).day,
-        ),
-      );
-    }
+    final snapshot = interestPeriodSnapshots[month];
+    final dueDate = snapshot?.dueDate ??
+        (month == _monthKey(interestStartDate)
+            ? firstInterestDueDate
+            : _scheduledDueDate(month, dueDay, interestStartDate));
     final now = today ?? DateTime.now();
     final todayAtMidnight = DateTime(now.year, now.month, now.day);
     final expected = interestForMonth(month);
@@ -221,9 +351,14 @@ class Loan {
         'rate': rate,
         'dueDay': dueDay,
         'startDate': _dateKey(startDate),
+        'interestStartDate': _dateKey(interestStartDate),
+        'firstInterestDueDate': _dateKey(firstInterestDueDate),
         'note': note,
         'phone': phone,
         'payments': payments.map((payment) => payment.toJson()).toList(),
+        'interestPeriodSnapshots': interestPeriodSnapshots.map(
+          (month, snapshot) => MapEntry(month, snapshot.toJson()),
+        ),
       };
 
   factory Loan.fromJson(Map<String, Object?> json) {
@@ -255,14 +390,52 @@ class Loan {
       throw const FormatException('Invalid loan record.');
     }
     final startDate = _parseDate(json['startDate']! as String);
+    final rawInterestStartDate = json['interestStartDate'];
+    if (rawInterestStartDate != null && rawInterestStartDate is! String) {
+      throw const FormatException('Invalid interest start date.');
+    }
+    final interestStartDate = rawInterestStartDate == null
+        ? startDate
+        : _parseDate(rawInterestStartDate as String);
+    final rawFirstInterestDueDate = json['firstInterestDueDate'];
+    if (rawFirstInterestDueDate != null && rawFirstInterestDueDate is! String) {
+      throw const FormatException('Invalid first interest due date.');
+    }
+    final firstInterestDueDate = rawFirstInterestDueDate == null
+        ? _scheduledDueDate(
+            _monthKey(interestStartDate),
+            dueDay,
+            interestStartDate,
+          )
+        : _parseDate(rawFirstInterestDueDate as String);
+    final rawSnapshots = json['interestPeriodSnapshots'];
+    if (rawSnapshots != null && rawSnapshots is! Map) {
+      throw const FormatException('Invalid interest period snapshots.');
+    }
+    final snapshots = <String, InterestPeriodSnapshot>{};
+    if (rawSnapshots is Map) {
+      for (final entry in rawSnapshots.entries) {
+        if (entry.key is! String ||
+            !_isMonth(entry.key as String) ||
+            entry.value is! Map) {
+          throw const FormatException('Invalid interest period snapshot.');
+        }
+        snapshots[entry.key as String] = InterestPeriodSnapshot.fromJson(
+          Map<String, Object?>.from(entry.value as Map),
+        );
+      }
+    }
     final payments = rawPayments.map((item) {
       if (item is! Map) throw const FormatException('Invalid payment record.');
       return LoanPayment.fromJson(Map<String, Object?>.from(item));
     }).toList();
-    if (payments.any((payment) => payment.date.isBefore(startDate)) ||
+    if (interestStartDate.isBefore(startDate) ||
+        (rate > 0 && firstInterestDueDate.isBefore(interestStartDate)) ||
+        payments.any((payment) => payment.date.isBefore(startDate)) ||
         payments.any((payment) =>
             payment.type == 'interest' &&
-            payment.month!.compareTo(_monthKey(startDate)) < 0) ||
+            payment.month!.compareTo(_monthKey(interestStartDate)) < 0 &&
+            !snapshots.containsKey(payment.month)) ||
         payments.map((payment) => payment.id).toSet().length !=
             payments.length ||
         payments
@@ -279,9 +452,12 @@ class Loan {
       rate: rate.toDouble(),
       dueDay: dueDay,
       startDate: startDate,
+      interestStartDate: interestStartDate,
+      firstInterestDueDate: firstInterestDueDate,
       note: json['note'] as String? ?? '',
       phone: (json['phone'] as String? ?? '').trim(),
       payments: payments,
+      interestPeriodSnapshots: snapshots,
     );
     final interestMonths = payments
         .where((payment) => payment.type == 'interest')
@@ -302,6 +478,30 @@ bool _isMonth(String? value) =>
 
 String _monthKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
+
+DateTime _scheduledDueDate(
+  String month,
+  int dueDay,
+  DateTime interestStartDate,
+) {
+  final parts = month.split('-').map(int.parse).toList();
+  final year = parts[0];
+  final monthNumber = parts[1];
+  final lastDay = DateTime(year, monthNumber + 1, 0).day;
+  var dueDate = DateTime(year, monthNumber, math.min(dueDay, lastDay));
+  if (interestStartDate.isAfter(dueDate)) {
+    final nextMonth = DateTime(year, monthNumber + 1, 1);
+    dueDate = DateTime(
+      nextMonth.year,
+      nextMonth.month,
+      math.min(
+        dueDay,
+        DateTime(nextMonth.year, nextMonth.month + 1, 0).day,
+      ),
+    );
+  }
+  return dueDate;
+}
 
 String _dateKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';

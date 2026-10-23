@@ -376,39 +376,41 @@ class PdfStatementService {
           if (loan.phone.isNotEmpty) pw.Text(loan.phone),
           pw.SizedBox(height: 16),
           _summaryTable(loan, overdue, isTamil),
-          pw.SizedBox(height: 22),
-          pw.Text(
-            isTamil ? 'மாத வாரியான கணக்கு' : 'Monthly account ledger',
-            style: const pw.TextStyle(
-              fontSize: 15,
-              fontWeight: pw.FontWeight.bold,
+          if (loan.hasInterestLedger) ...[
+            pw.SizedBox(height: 22),
+            pw.Text(
+              isTamil ? 'மாத வாரியான கணக்கு' : 'Monthly account ledger',
+              style: const pw.TextStyle(
+                fontSize: 15,
+                fontWeight: pw.FontWeight.bold,
+              ),
             ),
-          ),
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            headers: isTamil
-                ? ['மாதம்', 'வட்டி', 'செலுத்தியது', 'நிலுவை', 'நிலை']
-                : ['Month', 'Interest', 'Paid', 'Balance', 'Status'],
-            data: months.map((month) {
-              final status = loan.statusFor(month, today: now);
-              return [
-                month,
-                _money(status.expected),
-                _money(status.paid),
-                _money(status.remaining),
-                isTamil
-                    ? (status.isDue ? 'நிலுவை' : 'சரி')
-                    : (status.isDue ? 'Overdue' : 'Current'),
-              ];
-            }).toList(),
-            headerStyle: const pw.TextStyle(
-              color: PdfColors.white,
-              fontWeight: pw.FontWeight.bold,
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: isTamil
+                  ? ['மாதம்', 'வட்டி', 'செலுத்தியது', 'நிலுவை', 'நிலை']
+                  : ['Month', 'Interest', 'Paid', 'Balance', 'Status'],
+              data: months.map((month) {
+                final status = loan.statusFor(month, today: now);
+                return [
+                  month,
+                  _money(status.expected),
+                  _money(status.paid),
+                  _money(status.remaining),
+                  isTamil
+                      ? (status.isDue ? 'நிலுவை' : 'சரி')
+                      : (status.isDue ? 'Overdue' : 'Current'),
+                ];
+              }).toList(),
+              headerStyle: const pw.TextStyle(
+                color: PdfColors.white,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              headerDecoration: pw.BoxDecoration(color: navy),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.all(6),
             ),
-            headerDecoration: pw.BoxDecoration(color: navy),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            cellPadding: const pw.EdgeInsets.all(6),
-          ),
+          ],
           if (loan.payments.isNotEmpty) ...[
             pw.SizedBox(height: 22),
             pw.Text(
@@ -469,15 +471,39 @@ class PdfStatementService {
         isTamil ? 'கடன் தேதி' : 'Loan date',
         DateFormat('dd-MM-yyyy').format(loan.startDate)
       ],
-      [
-        isTamil ? 'மாத வட்டி' : 'Monthly interest',
-        '${loan.rate}% • ${_money(loan.monthlyInterest)}'
+      if (loan.rate > 0) ...[
+        [
+          isTamil ? 'வட்டி தொடங்கும் தேதி' : 'Interest start date',
+          DateFormat('dd-MM-yyyy').format(loan.interestStartDate)
+        ],
+        [
+          isTamil ? 'முதல் வட்டி தவணை தேதி' : 'First interest due date',
+          DateFormat('dd-MM-yyyy').format(loan.firstInterestDueDate)
+        ],
+        [
+          isTamil ? 'மாத வட்டி தவணை நாள்' : 'Monthly interest due day',
+          '${loan.dueDay}'
+        ],
+        [
+          isTamil ? 'மாத வட்டி' : 'Monthly interest',
+          '${loan.rate}% • ${_money(loan.monthlyInterest)}'
+        ],
       ],
       [
         isTamil ? 'முதல்தொகை நிலுவை' : 'Principal outstanding',
         _money(loan.outstanding)
       ],
-      [isTamil ? 'வட்டி நிலுவை' : 'Interest outstanding', _money(overdue)],
+      if (overdue > 0.009)
+        [isTamil ? 'வட்டி நிலுவை' : 'Interest outstanding', _money(overdue)],
+      [
+        isTamil ? 'மொத்த நிலுவை' : 'Total outstanding',
+        _money(loan.totalOutstanding())
+      ],
+      if (loan.lastPaymentDate != null)
+        [
+          isTamil ? 'கடைசி பணம் பெற்ற தேதி' : 'Last payment date',
+          DateFormat('dd-MM-yyyy').format(loan.lastPaymentDate!)
+        ],
     ];
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey300),

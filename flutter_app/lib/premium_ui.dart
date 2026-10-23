@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'loan_reminder.dart';
 import 'models.dart';
 
 const _brandBlue = Color(0xFF1769FF);
@@ -103,6 +105,7 @@ class PremiumAppShell extends StatelessWidget {
     required this.selectedPage,
     required this.onPageChanged,
     required this.onAddLoan,
+    required this.onEditLoan,
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
@@ -130,6 +133,7 @@ class PremiumAppShell extends StatelessWidget {
   final int selectedPage;
   final ValueChanged<int> onPageChanged;
   final VoidCallback onAddLoan;
+  final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
@@ -157,6 +161,7 @@ class PremiumAppShell extends StatelessWidget {
         profileName: profileName,
         loadError: loadError,
         onAddLoan: onAddLoan,
+        onEditLoan: onEditLoan,
         onPayment: onPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
@@ -169,6 +174,7 @@ class PremiumAppShell extends StatelessWidget {
         loans: loans,
         isTamil: isTamil,
         onAddLoan: onAddLoan,
+        onEditLoan: onEditLoan,
         onPayment: onPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
@@ -178,6 +184,7 @@ class PremiumAppShell extends StatelessWidget {
       _PeoplePage(
         loans: loans,
         isTamil: isTamil,
+        onEditLoan: onEditLoan,
         onPayment: onPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
@@ -267,6 +274,7 @@ class _DashboardPage extends StatelessWidget {
     required this.profileName,
     required this.loadError,
     required this.onAddLoan,
+    required this.onEditLoan,
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
@@ -281,6 +289,7 @@ class _DashboardPage extends StatelessWidget {
   final String profileName;
   final String? loadError;
   final VoidCallback onAddLoan;
+  final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
@@ -399,6 +408,7 @@ class _DashboardPage extends StatelessWidget {
               _PremiumLoanCard(
                 loan: loan,
                 isTamil: isTamil,
+                onEdit: () => onEditLoan(loan),
                 onPayment: () => onPayment(loan),
                 onEditPhone: () => onEditPhone(loan),
                 onSharePdf: () => onSharePdf(loan),
@@ -447,6 +457,7 @@ class _LoansPage extends StatefulWidget {
     required this.loans,
     required this.isTamil,
     required this.onAddLoan,
+    required this.onEditLoan,
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
@@ -457,6 +468,7 @@ class _LoansPage extends StatefulWidget {
   final List<Loan> loans;
   final bool isTamil;
   final VoidCallback onAddLoan;
+  final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
@@ -566,6 +578,7 @@ class _LoansPageState extends State<_LoansPage> {
                 loan: loan,
                 isTamil: widget.isTamil,
                 showDelete: true,
+                onEdit: () => widget.onEditLoan(loan),
                 onPayment: () => widget.onPayment(loan),
                 onEditPhone: () => widget.onEditPhone(loan),
                 onSharePdf: () => widget.onSharePdf(loan),
@@ -583,6 +596,7 @@ class _PeoplePage extends StatelessWidget {
   const _PeoplePage({
     required this.loans,
     required this.isTamil,
+    required this.onEditLoan,
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
@@ -591,6 +605,7 @@ class _PeoplePage extends StatelessWidget {
 
   final List<Loan> loans;
   final bool isTamil;
+  final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
@@ -642,6 +657,7 @@ class _PeoplePage extends StatelessWidget {
                         people[i].key,
                         people[i].value,
                         isTamil,
+                        onEditLoan,
                         onPayment,
                         onEditPhone,
                         onSharePdf,
@@ -1798,6 +1814,7 @@ class _PremiumLoanCard extends StatelessWidget {
   const _PremiumLoanCard({
     required this.loan,
     required this.isTamil,
+    required this.onEdit,
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
@@ -1808,6 +1825,7 @@ class _PremiumLoanCard extends StatelessWidget {
 
   final Loan loan;
   final bool isTamil;
+  final VoidCallback onEdit;
   final VoidCallback onPayment;
   final VoidCallback onEditPhone;
   final VoidCallback onSharePdf;
@@ -1823,7 +1841,7 @@ class _PremiumLoanCard extends StatelessWidget {
     final status = loan.statusFor(DateFormat('yyyy-MM').format(now));
     final overdue = loan.overdueInterest(today: now);
     final isGiven = loan.direction == 'given';
-    final interestFree = isGiven && loan.rate == 0;
+    final interestFree = loan.rate <= 0;
     final accent = interestFree ? _success : (isGiven ? _brandBlue : _warning);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1876,14 +1894,14 @@ class _PremiumLoanCard extends StatelessWidget {
                   ),
                 ),
                 _StatusPill(
-                  text: loan.outstanding <= .009
+                  text: loan.isCompleted(today: now)
                       ? _tr('முடிந்தது', 'Settled')
                       : overdue > .009
                           ? _tr('நிலுவை', 'Overdue')
                           : !interestFree && status.remaining <= .009
                               ? _tr('செலுத்தியது', 'Settled')
                               : _tr('செயலில்', 'Active'),
-                  color: loan.outstanding <= .009
+                  color: loan.isCompleted(today: now)
                       ? _success
                       : overdue > .009
                           ? const Color(0xFFEF5350)
@@ -1894,11 +1912,23 @@ class _PremiumLoanCard extends StatelessWidget {
                 PopupMenuButton<String>(
                   tooltip: _tr('மேலும்', 'More'),
                   onSelected: (value) {
+                    if (value == 'edit') onEdit();
                     if (value == 'contact') onEditPhone();
                     if (value == 'pdf') onSharePdf();
                     if (value == 'delete') onDelete?.call();
                   },
                   itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.edit_calendar_outlined),
+                          const SizedBox(width: 9),
+                          Text(_tr('கடன் அமைப்புகளைத் திருத்து',
+                              'Edit loan settings')),
+                        ],
+                      ),
+                    ),
                     PopupMenuItem(
                       value: 'contact',
                       child: Row(
@@ -1940,10 +1970,9 @@ class _PremiumLoanCard extends StatelessWidget {
                 Expanded(
                   child: _LoanAmount(
                     label: interestFree
-                        ? _tr('கொடுத்த தொகை', 'Amount lent')
+                        ? _tr('முதல்தொகை நிலுவை', 'Principal outstanding')
                         : _tr('முதல்தொகை நிலுவை', 'Outstanding'),
-                    value: _money(
-                        interestFree ? loan.principal : loan.outstanding),
+                    value: _money(loan.outstanding),
                   ),
                 ),
                 Container(
@@ -1955,7 +1984,7 @@ class _PremiumLoanCard extends StatelessWidget {
                 Expanded(
                   child: _LoanAmount(
                     label: interestFree
-                        ? _tr('கொடுத்த தேதி', 'Date lent')
+                        ? _tr('கடன் தேதி', 'Loan date')
                         : _tr('மாத வட்டி', 'Monthly interest'),
                     value: interestFree
                         ? DateFormat('d MMM yyyy').format(loan.startDate)
@@ -2000,21 +2029,13 @@ class _PremiumLoanCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 if (isGiven) ...[
                   IconButton.filledTonal(
-                    tooltip: loan.phone.isEmpty
-                        ? _tr('WhatsApp எண் சேர்க்க', 'Add WhatsApp number')
-                        : _tr('WhatsApp நினைவூட்டல்', 'WhatsApp reminder'),
-                    onPressed: loan.phone.isEmpty
-                        ? onEditPhone
-                        : () => _openWhatsAppReminder(
-                              context,
-                              loan,
-                              isTamil,
-                            ),
-                    icon: Icon(
-                      loan.phone.isEmpty
-                          ? Icons.person_add_alt_1_rounded
-                          : Icons.chat_rounded,
+                    tooltip: _tr('பகிர்வு', 'Share'),
+                    onPressed: () => showLoanShareSheet(
+                      context,
+                      loan: loan,
+                      appIsTamil: isTamil,
                     ),
+                    icon: const Icon(Icons.share_rounded),
                   ),
                   const SizedBox(width: 10),
                 ],
@@ -3306,6 +3327,7 @@ Future<void> _showPersonDetails(
   String name,
   List<Loan> loans,
   bool isTamil,
+  ValueChanged<Loan> onEditLoan,
   ValueChanged<Loan> onPayment,
   ValueChanged<Loan> onEditPhone,
   ValueChanged<Loan> onSharePdf,
@@ -3337,6 +3359,10 @@ Future<void> _showPersonDetails(
                       _PremiumLoanCard(
                         loan: loan,
                         isTamil: isTamil,
+                        onEdit: () {
+                          Navigator.pop(sheetContext);
+                          onEditLoan(loan);
+                        },
                         onPayment: () {
                           Navigator.pop(sheetContext);
                           onPayment(loan);
@@ -3363,67 +3389,234 @@ Future<void> _showPersonDetails(
       ),
     );
 
-Future<void> _openWhatsAppReminder(
-  BuildContext context,
-  Loan loan,
-  bool isTamil,
-) async {
+Future<void> showLoanShareSheet(
+  BuildContext context, {
+  required Loan loan,
+  required bool appIsTamil,
+  LoanShareType initialType = LoanShareType.reminder,
+  LoanPayment? payment,
+}) async {
+  var selectedType = initialType;
+  var selectedLanguage =
+      appIsTamil ? LoanShareLanguage.tamil : LoanShareLanguage.english;
+  final paymentsByDate = [...loan.payments]..sort((a, b) {
+      final byDate = a.date.compareTo(b.date);
+      return byDate != 0 ? byDate : a.id.compareTo(b.id);
+    });
+  final recordedPayment =
+      payment != null && loan.payments.any((item) => item.id == payment.id)
+          ? payment
+          : (paymentsByDate.isEmpty ? null : paymentsByDate.last);
+  if (selectedType == LoanShareType.paymentReceipt && recordedPayment == null) {
+    selectedType = LoanShareType.reminder;
+  }
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (context, setSheetState) {
+        final message = LoanShareMessageBuilder.build(
+          loan: loan,
+          type: selectedType,
+          language: selectedLanguage,
+          payment: selectedType == LoanShareType.paymentReceipt
+              ? recordedPayment
+              : null,
+        );
+        String tr(String ta, String en) => appIsTamil ? ta : en;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            20 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr('கணக்கு பகிர்வு', 'Share loan account'),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ShareTypeChip(
+                    label: tr('நினைவூட்டல்', 'Reminder'),
+                    icon: Icons.notifications_none_rounded,
+                    selected: selectedType == LoanShareType.reminder,
+                    onSelected: () => setSheetState(
+                      () => selectedType = LoanShareType.reminder,
+                    ),
+                  ),
+                  _ShareTypeChip(
+                    label: tr('கடன் அறிக்கை', 'Statement'),
+                    icon: Icons.receipt_long_outlined,
+                    selected: selectedType == LoanShareType.statement,
+                    onSelected: () => setSheetState(
+                      () => selectedType = LoanShareType.statement,
+                    ),
+                  ),
+                  _ShareTypeChip(
+                    label: tr('பணம் பெற்ற ரசீது', 'Payment receipt'),
+                    icon: Icons.task_alt_rounded,
+                    selected: selectedType == LoanShareType.paymentReceipt,
+                    enabled: recordedPayment != null,
+                    onSelected: () => setSheetState(
+                      () => selectedType = LoanShareType.paymentReceipt,
+                    ),
+                  ),
+                ],
+              ),
+              if (recordedPayment == null) ...[
+                const SizedBox(height: 7),
+                Text(
+                  tr(
+                    'பதிவு செய்யப்பட்ட செலுத்தல் இருந்தால் மட்டுமே ரசீது கிடைக்கும்.',
+                    'A receipt is available only after a payment is recorded.',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 14),
+              SegmentedButton<LoanShareLanguage>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(
+                    value: LoanShareLanguage.english,
+                    label: Text('English'),
+                  ),
+                  ButtonSegment(
+                    value: LoanShareLanguage.tamil,
+                    label: Text('தமிழ்'),
+                  ),
+                  ButtonSegment(
+                    value: LoanShareLanguage.both,
+                    label: Text('Both'),
+                  ),
+                ],
+                selected: {selectedLanguage},
+                onSelectionChanged: (selection) => setSheetState(
+                  () => selectedLanguage = selection.first,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                tr('முன்னோட்டம்', 'Preview'),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 7),
+              Container(
+                width: double.infinity,
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * .36,
+                ),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: .55),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    message,
+                    style: const TextStyle(height: 1.45, fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: message));
+                        if (sheetContext.mounted) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(
+                              content: Text(tr(
+                                'செய்தி நகலெடுக்கப்பட்டது.',
+                                'Message copied.',
+                              )),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy_rounded),
+                      label: Text(tr('நகலெடு', 'Copy')),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _shareToWhatsApp(
+                        sheetContext,
+                        loan: loan,
+                        message: message,
+                        isTamil: appIsTamil,
+                      ),
+                      icon: const Icon(Icons.chat_rounded),
+                      label: const Text('WhatsApp'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _ShareTypeChip extends StatelessWidget {
+  const _ShareTypeChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onSelected,
+    this.enabled = true,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) => ChoiceChip(
+        avatar: Icon(icon, size: 18),
+        label: Text(label),
+        selected: selected,
+        onSelected: enabled ? (_) => onSelected() : null,
+      );
+}
+
+Future<void> _shareToWhatsApp(
+  BuildContext context, {
+  required Loan loan,
+  required String message,
+  required bool isTamil,
+}) async {
   var phone = loan.phone.replaceAll(RegExp(r'\D'), '');
   if (phone.length == 10) phone = '91$phone';
-
-  final now = DateTime.now();
-  final unpaidMonths = loan.monthsThrough(now).where((month) {
-    return loan.statusFor(month, today: now).isDue;
-  }).toList();
-  final monthLines = unpaidMonths.map((month) {
-    final parts = month.split('-');
-    final date = DateTime(int.parse(parts[0]), int.parse(parts[1]));
-    final status = loan.statusFor(month, today: now);
-    return '• ${DateFormat('MMMM yyyy', isTamil ? 'ta' : 'en').format(date)}: '
-        '${_money(status.remaining)} '
-        '(${isTamil ? 'கடைசி தேதி' : 'due'} '
-        '${DateFormat('dd-MM-yyyy').format(status.dueDate)})';
-  }).join('\n');
-  final overdueInterest = loan.overdueInterest(today: now);
-
-  final message = isTamil
-      ? '''வணக்கம் ${loan.person},
-
-கடன் நினைவூட்டல்:
-• முதல்தொகை: ${_money(loan.principal)}
-• கடன் வாங்கிய தேதி: ${DateFormat('dd-MM-yyyy').format(loan.startDate)}
-• மாத வட்டி: ${loan.rate}% (${_money(loan.monthlyInterest)})
-• முதல்தொகை நிலுவை: ${_money(loan.outstanding)}
-• வட்டி நிலுவை: ${_money(overdueInterest)}
-• செலுத்தாத மாதங்கள்: ${unpaidMonths.length}
-${monthLines.isEmpty ? '• மாத வட்டி நிலுவை இல்லை' : monthLines}
-
-தயவுசெய்து நிலுவைத் தொகையை செலுத்தவும். நன்றி.'''
-      : '''Hello ${loan.person},
-
-Loan reminder:
-• Principal: ${_money(loan.principal)}
-• Loan date: ${DateFormat('dd-MM-yyyy').format(loan.startDate)}
-• Monthly interest: ${loan.rate}% (${_money(loan.monthlyInterest)})
-• Principal outstanding: ${_money(loan.outstanding)}
-• Interest outstanding: ${_money(overdueInterest)}
-• Unpaid months: ${unpaidMonths.length}
-${monthLines.isEmpty ? '• No monthly interest is overdue' : monthLines}
-
-Please pay the outstanding amount. Thank you.''';
-
-  final uri = Uri.https('wa.me', '/$phone', {'text': message});
+  final path = phone.isEmpty ? '/' : '/$phone';
+  final uri = Uri.https('wa.me', path, {'text': message});
   try {
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isTamil
-              ? 'WhatsApp-ஐ திறக்க முடியவில்லை.'
-              : 'Could not open WhatsApp.'),
-        ),
-      );
-    }
+    if (!opened) throw StateError('WhatsApp did not open.');
   } catch (_) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

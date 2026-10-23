@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_services.dart';
+import 'loan_reminder.dart';
 import 'models.dart';
 import 'premium_ui.dart';
 
@@ -173,7 +175,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     }
   }
 
-  Future<void> _saveLoans(List<Loan> loans) async {
+  Future<bool> _saveLoans(List<Loan> loans) async {
     final json = jsonEncode(loans.map((loan) => loan.toJson()).toList());
     final preferences = await SharedPreferences.getInstance();
     if (await SecureDataStore.instance.writeLoans(preferences, json) &&
@@ -184,7 +186,9 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         enabled: _notificationsEnabled,
         isTamil: _isTamil,
       );
+      return true;
     }
+    return false;
   }
 
   void _message(String message) {
@@ -201,6 +205,162 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     if (loan != null) await _saveLoans([loan, ..._loans]);
   }
 
+  Future<void> _editLoan(Loan loan) async {
+    final candidate = await showDialog<Loan>(
+      context: _appContext,
+      builder: (_) => LoanFormDialog(isTamil: _isTamil, loan: loan),
+    );
+    if (candidate == null || !mounted) return;
+    final confirmed = await _showLoanEditPreview(loan, candidate);
+    if (confirmed != true || !mounted) return;
+    await _saveLoans(
+      _loans.map((item) => item.id == loan.id ? candidate : item).toList(),
+    );
+  }
+
+  Future<bool?> _showLoanEditPreview(Loan oldLoan, Loan newLoan) {
+    final now = DateTime.now();
+    final date = DateFormat('d MMM yyyy');
+    final money = NumberFormat.currency(
+      locale: 'en_IN',
+      symbol: '₹',
+      decimalDigits: 2,
+    );
+    final rows = <(String, String, String)>[
+      (
+        _tr('கடன் வழங்கிய தேதி', 'Loan given date'),
+        date.format(oldLoan.startDate),
+        date.format(newLoan.startDate),
+      ),
+      (
+        _tr('வட்டி தொடங்கும் தேதி', 'Interest start date'),
+        date.format(oldLoan.interestStartDate),
+        date.format(newLoan.interestStartDate),
+      ),
+      (
+        _tr('முதல் வட்டி தவணை', 'First interest due'),
+        date.format(oldLoan.firstInterestDueDate),
+        date.format(newLoan.firstInterestDueDate),
+      ),
+      (
+        _tr('மாத வட்டி விகிதம்', 'Monthly interest rate'),
+        '${oldLoan.rate}%',
+        '${newLoan.rate}%',
+      ),
+      (
+        _tr('மாத தவணை நாள்', 'Monthly due day'),
+        '${oldLoan.dueDay}',
+        '${newLoan.dueDay}',
+      ),
+      (
+        _tr('செலுத்தாத மாதங்கள்', 'Unpaid overdue months'),
+        '${oldLoan.overdueMonthCount(today: now)}',
+        '${newLoan.overdueMonthCount(today: now)}',
+      ),
+      (
+        _tr('வட்டி நிலுவை', 'Interest outstanding'),
+        money.format(oldLoan.interestOutstanding(today: now)),
+        money.format(newLoan.interestOutstanding(today: now)),
+      ),
+      (
+        _tr('மொத்த நிலுவை', 'Total outstanding'),
+        money.format(oldLoan.totalOutstanding(today: now)),
+        money.format(newLoan.totalOutstanding(today: now)),
+      ),
+    ];
+    return showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('மாற்றங்களை உறுதிப்படுத்தவும்', 'Confirm changes')),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(dialogContext)
+                        .colorScheme
+                        .errorContainer
+                        .withValues(alpha: .55),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(oldLoan.payments.isEmpty
+                            ? _tr(
+                                'இந்த மாற்றம் வட்டி அட்டவணை மற்றும் நிலுவையை மறுகணக்கிடும்.',
+                                'This change recalculates the interest schedule and balances.',
+                              )
+                            : _tr(
+                                'பதிவான பணப்பரிவர்த்தனைகள் மாற்றப்படாது. ஏற்கனவே வட்டி செலுத்திய மாதங்களின் பழைய கணக்கு பாதுகாக்கப்படும்; செலுத்தாத மாதங்கள் மட்டும் புதிய அமைப்பில் மறுகணக்கிடப்படும்.',
+                                'Recorded transactions will not change. Periods with interest payments keep their historical calculation; only unpaid periods recalculate with the new settings.',
+                              )),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(flex: 4, child: SizedBox()),
+                    Expanded(
+                      flex: 3,
+                      child: Text(_tr('பழையது', 'Old'),
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Text(_tr('புதியது', 'New'),
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                for (final row in rows) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: Text(row.$1,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                        Expanded(flex: 3, child: Text(row.$2)),
+                        Expanded(flex: 3, child: Text(row.$3)),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('உறுதிசெய்து சேமி', 'Confirm & save')),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _addPayment(Loan loan) async {
     final payment = await showDialog<LoanPayment>(
       context: _appContext,
@@ -212,7 +372,16 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
             ? item.copyWith(payments: [...item.payments, payment])
             : item)
         .toList();
-    await _saveLoans(updated);
+    final saved = await _saveLoans(updated);
+    if (!saved || !mounted) return;
+    final updatedLoan = updated.firstWhere((item) => item.id == loan.id);
+    await showLoanShareSheet(
+      _appContext,
+      loan: updatedLoan,
+      appIsTamil: _isTamil,
+      initialType: LoanShareType.paymentReceipt,
+      payment: payment,
+    );
   }
 
   Future<void> _editLoanPhone(Loan loan) async {
@@ -689,6 +858,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                   selectedPage: _selectedPage,
                   onPageChanged: (page) => setState(() => _selectedPage = page),
                   onAddLoan: _addLoan,
+                  onEditLoan: _editLoan,
                   onPayment: _addPayment,
                   onEditPhone: _editLoanPhone,
                   onSharePdf: _shareLoanPdf,
@@ -1740,8 +1910,9 @@ class _SettingsPageState extends State<_SettingsPage> {
 }
 
 class LoanFormDialog extends StatefulWidget {
-  const LoanFormDialog({required this.isTamil, super.key});
+  const LoanFormDialog({required this.isTamil, this.loan, super.key});
   final bool isTamil;
+  final Loan? loan;
 
   @override
   State<LoanFormDialog> createState() => _LoanFormDialogState();
@@ -1752,14 +1923,58 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
   final _person = TextEditingController();
   final _phone = TextEditingController();
   final _principal = TextEditingController();
-  final _rate = TextEditingController(text: '2');
-  final _dueDay = TextEditingController(text: '5');
+  final _rate = TextEditingController();
+  final _dueDay = TextEditingController();
   final _note = TextEditingController();
   String _direction = 'given';
   bool _interestFree = false;
-  DateTime _startDate = DateTime.now();
+  late DateTime _loanDate;
+  late DateTime _interestStartDate;
+  late DateTime _firstInterestDueDate;
+
+  bool get _editing => widget.loan != null;
+
+  bool get _hasInterest =>
+      !_interestFree && (double.tryParse(_rate.text) ?? 0) > 0;
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  @override
+  void initState() {
+    super.initState();
+    final loan = widget.loan;
+    final now = DateTime.now();
+    _direction = loan?.direction ?? 'given';
+    _person.text = loan?.person ?? '';
+    _phone.text = loan?.phone ?? '';
+    _principal.text = loan == null ? '' : _plainNumber(loan.principal);
+    _rate.text = loan == null ? '2' : _plainNumber(loan.rate);
+    _dueDay.text = (loan?.dueDay ?? 5).toString();
+    _note.text = loan?.note ?? '';
+    _interestFree = loan?.rate == 0;
+    _loanDate = loan?.startDate ?? now;
+    _interestStartDate = loan?.interestStartDate ?? now;
+    _firstInterestDueDate = loan?.firstInterestDueDate ??
+        _dueDateFor(_interestStartDate, int.parse(_dueDay.text));
+  }
+
+  String _plainNumber(double value) =>
+      value == value.roundToDouble() ? value.toInt().toString() : '$value';
+
+  DateTime _dueDateFor(DateTime start, int day) {
+    var year = start.year;
+    var month = start.month;
+    var lastDay = DateTime(year, month + 1, 0).day;
+    var result = DateTime(year, month, math.min(day, lastDay));
+    if (result.isBefore(start)) {
+      final next = DateTime(year, month + 1);
+      year = next.year;
+      month = next.month;
+      lastDay = DateTime(year, month + 1, 0).day;
+      result = DateTime(year, month, math.min(day, lastDay));
+    }
+    return result;
+  }
 
   @override
   void dispose() {
@@ -1772,15 +1987,71 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
+  Future<void> _pickLoanDate() async {
+    final now = DateTime.now();
+    final paymentDates = widget.loan?.payments.map((payment) => payment.date);
+    final earliestPayment = paymentDates == null || paymentDates.isEmpty
+        ? null
+        : paymentDates.reduce((a, b) => a.isBefore(b) ? a : b);
+    final lastDate = earliestPayment == null || earliestPayment.isAfter(now)
+        ? now
+        : earliestPayment;
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _loanDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(lastDate.year, lastDate.month, lastDate.day),
+    );
+    if (selected != null) {
+      setState(() {
+        _loanDate = selected;
+        if (_interestStartDate.isBefore(selected)) {
+          _interestStartDate = selected;
+        }
+        if (_firstInterestDueDate.isBefore(_interestStartDate)) {
+          _firstInterestDueDate = _dueDateFor(
+            _interestStartDate,
+            int.tryParse(_dueDay.text) ?? 5,
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _pickInterestStartDate() async {
     final now = DateTime.now();
     final selected = await showDatePicker(
       context: context,
-      initialDate: _startDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(now.year, now.month, now.day),
+      initialDate: _interestStartDate.isBefore(_loanDate)
+          ? _loanDate
+          : _interestStartDate,
+      firstDate: _loanDate,
+      lastDate: DateTime(now.year + 20, 12, 31),
     );
-    if (selected != null) setState(() => _startDate = selected);
+    if (selected != null) {
+      setState(() {
+        _interestStartDate = selected;
+        if (_firstInterestDueDate.isBefore(selected)) {
+          _firstInterestDueDate = _dueDateFor(
+            selected,
+            int.tryParse(_dueDay.text) ?? 5,
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _pickFirstInterestDueDate() async {
+    final now = DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _firstInterestDueDate.isBefore(_interestStartDate)
+          ? _interestStartDate
+          : _firstInterestDueDate,
+      firstDate: _interestStartDate,
+      lastDate: DateTime(now.year + 30, 12, 31),
+    );
+    if (selected != null) setState(() => _firstInterestDueDate = selected);
   }
 
   void _submit() {
@@ -1788,22 +2059,44 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
     final principal = double.parse(_principal.text);
     final rate = double.parse(_rate.text);
     final dueDay = int.parse(_dueDay.text);
-    Navigator.pop(
-      context,
-      Loan(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        direction: _direction,
-        person: _person.text.trim(),
-        phone: _phone.text.trim(),
-        principal: principal,
-        rate: rate,
-        dueDay: dueDay,
-        startDate: _startDate,
-        note: _note.text.trim(),
-        payments: const [],
-      ),
-    );
+    if (_firstInterestDueDate.isBefore(_interestStartDate) && rate > 0) {
+      _message(_tr(
+        'முதல் வட்டி தவணை தேதி, வட்டி தொடங்கும் தேதிக்கு முன் இருக்க முடியாது.',
+        'First interest due date cannot be before the interest start date.',
+      ));
+      return;
+    }
+    final existing = widget.loan;
+    final result = existing == null
+        ? Loan(
+            id: DateTime.now().microsecondsSinceEpoch.toString(),
+            direction: _direction,
+            person: _person.text.trim(),
+            phone: _phone.text.trim(),
+            principal: principal,
+            rate: rate,
+            dueDay: dueDay,
+            startDate: _loanDate,
+            interestStartDate: _interestStartDate,
+            firstInterestDueDate: _firstInterestDueDate,
+            note: _note.text.trim(),
+            payments: const [],
+          )
+        : existing.withCalculationSettings(
+            person: _person.text.trim(),
+            phone: _phone.text.trim(),
+            rate: rate,
+            dueDay: dueDay,
+            startDate: _loanDate,
+            interestStartDate: _interestStartDate,
+            firstInterestDueDate: _firstInterestDueDate,
+            note: _note.text.trim(),
+          );
+    Navigator.pop(context, result);
   }
+
+  void _message(String message) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(message)));
 
   String? _required(String? value, String label) =>
       value == null || value.trim().isEmpty
@@ -1812,7 +2105,9 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text(_tr('கடன் விவரங்கள்', 'Loan details')),
+        title: Text(_editing
+            ? _tr('கடன் அமைப்புகளைத் திருத்து', 'Edit loan settings')
+            : _tr('கடன் விவரங்கள்', 'Loan details')),
         content: SizedBox(
           width: 440,
           child: Form(
@@ -1833,13 +2128,15 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                       ),
                     ],
                     selected: {_direction},
-                    onSelectionChanged: (value) => setState(() {
-                      _direction = value.first;
-                      if (_direction == 'taken' && _interestFree) {
-                        _interestFree = false;
-                        _rate.text = '2';
-                      }
-                    }),
+                    onSelectionChanged: _editing
+                        ? null
+                        : (value) => setState(() {
+                              _direction = value.first;
+                              if (_direction == 'taken' && _interestFree) {
+                                _interestFree = false;
+                                _rate.text = '2';
+                              }
+                            }),
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
@@ -1876,6 +2173,7 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                   ),
                   TextFormField(
                     controller: _principal,
+                    readOnly: _editing,
                     onChanged: (_) => setState(() {}),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
@@ -1930,35 +2228,58 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _dueDay,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: _tr(
-                            'வட்டி செலுத்தும் தேதி (1–31)', 'Due day (1–31)'),
+                    if (_hasInterest) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _dueDay,
+                        onChanged: (_) => setState(() {}),
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: _tr('மாத வட்டி தவணை நாள் (1–31)',
+                              'Monthly interest due day (1–31)'),
+                        ),
+                        validator: (value) {
+                          final number = int.tryParse(value ?? '');
+                          if (number == null || number < 1 || number > 31) {
+                            return _tr('1 முதல் 31 வரை உள்ளிடவும்',
+                                'Enter a day from 1 to 31');
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (value) {
-                        final number = int.tryParse(value ?? '');
-                        if (number == null || number < 1 || number > 31) {
-                          return _tr('1 முதல் 31 வரை உள்ளிடவும்',
-                              'Enter a day from 1 to 31');
-                        }
-                        return null;
-                      },
-                    ),
+                    ],
                   ],
                   const SizedBox(height: 12),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(_interestFree
-                        ? _tr('கடன் கொடுத்த தேதி', 'Date lent')
-                        : _tr('தொடங்கிய தேதி', 'Start date')),
+                    title: Text(_tr('கடன் தேதி', 'Loan date')),
                     subtitle: Text(MaterialLocalizations.of(context)
-                        .formatMediumDate(_startDate)),
+                        .formatMediumDate(_loanDate)),
                     trailing: const Icon(Icons.calendar_month),
-                    onTap: _pickDate,
+                    onTap: _pickLoanDate,
                   ),
+                  if (_hasInterest)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                          _tr('வட்டி தொடங்கும் தேதி', 'Interest start date')),
+                      subtitle: Text(MaterialLocalizations.of(context)
+                          .formatMediumDate(_interestStartDate)),
+                      trailing: const Icon(Icons.calendar_month),
+                      onTap: _pickInterestStartDate,
+                    ),
+                  if (_hasInterest)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(_tr(
+                        'முதல் வட்டி தவணை தேதி',
+                        'First interest due date',
+                      )),
+                      subtitle: Text(MaterialLocalizations.of(context)
+                          .formatMediumDate(_firstInterestDueDate)),
+                      trailing: const Icon(Icons.event_available_outlined),
+                      onTap: _pickFirstInterestDueDate,
+                    ),
                   TextFormField(
                     controller: _note,
                     maxLength: 120,
@@ -1966,7 +2287,7 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
                       labelText: _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
                     ),
                   ),
-                  if (!_interestFree &&
+                  if (_hasInterest &&
                       _principal.text.isNotEmpty &&
                       _rate.text.isNotEmpty &&
                       double.tryParse(_principal.text) != null &&
@@ -1996,7 +2317,9 @@ class _LoanFormDialogState extends State<LoanFormDialog> {
           ),
           FilledButton(
             onPressed: _submit,
-            child: Text(_tr('சேமி', 'Save')),
+            child: Text(_editing
+                ? _tr('மாற்றங்களைப் பார்க்க', 'Review changes')
+                : _tr('சேமி', 'Save')),
           ),
         ],
       );
@@ -2023,6 +2346,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
   late String _month;
 
   Loan get _loan => widget.loan;
+  bool get _canPayInterest => _loan.months.any(
+        (month) => _loan.statusFor(month).remaining > 0.009,
+      );
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
 
   @override
@@ -2034,7 +2360,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
         _loan.oldestUnpaidMonth() ??
         currentMonth;
     final remaining = _loan.statusFor(_month).remaining;
-    if (remaining <= 0.009) _type = 'principal';
+    if (!_canPayInterest || remaining <= 0.009) _type = 'principal';
     _amount.text = (_type == 'interest' ? remaining : _loan.outstanding)
         .toStringAsFixed(2);
   }
@@ -2086,29 +2412,31 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                SegmentedButton<String>(
-                  segments: [
-                    ButtonSegment(
-                      value: 'interest',
-                      label: Text(_tr('வட்டி', 'Interest')),
-                    ),
-                    ButtonSegment(
-                      value: 'principal',
-                      label: Text(_tr('முதல்தொகை', 'Principal')),
-                    ),
-                  ],
-                  selected: {_type},
-                  onSelectionChanged: (value) {
-                    setState(() {
-                      _type = value.first;
-                      _amount.text = (_type == 'interest'
-                              ? _loan.statusFor(_month).remaining
-                              : _loan.outstanding)
-                          .toStringAsFixed(2);
-                    });
-                  },
-                ),
-                const SizedBox(height: 14),
+                if (_canPayInterest) ...[
+                  SegmentedButton<String>(
+                    segments: [
+                      ButtonSegment(
+                        value: 'interest',
+                        label: Text(_tr('வட்டி', 'Interest')),
+                      ),
+                      ButtonSegment(
+                        value: 'principal',
+                        label: Text(_tr('முதல்தொகை', 'Principal')),
+                      ),
+                    ],
+                    selected: {_type},
+                    onSelectionChanged: (value) {
+                      setState(() {
+                        _type = value.first;
+                        _amount.text = (_type == 'interest'
+                                ? _loan.statusFor(_month).remaining
+                                : _loan.outstanding)
+                            .toStringAsFixed(2);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 if (_type == 'interest')
                   DropdownButtonFormField<String>(
                     initialValue: _month,
@@ -2162,7 +2490,9 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(_tr('பணம் வந்த / கொடுத்த தேதி', 'Payment date')),
+                  title: Text(_loan.direction == 'given'
+                      ? _tr('பணம் பெற்ற தேதி', 'Payment received date')
+                      : _tr('பணம் செலுத்திய தேதி', 'Payment paid date')),
                   subtitle: Text(MaterialLocalizations.of(context)
                       .formatMediumDate(_paymentDate)),
                   trailing: const Icon(Icons.calendar_month),
@@ -2205,7 +2535,10 @@ Future<void> _showDetails(BuildContext context, Loan loan, bool isTamil) async {
         symbol: '₹',
         decimalDigits: value % 1 == 0 ? 0 : 2,
       ).format(value);
-  final months = loan.months.reversed.toList();
+  final now = DateTime.now();
+  final months =
+      loan.rate > 0 ? loan.monthsThrough(now).reversed.toList() : <String>[];
+  final interestOutstanding = loan.interestOutstanding(today: now);
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -2236,72 +2569,102 @@ Future<void> _showDetails(BuildContext context, Loan loan, bool isTamil) async {
               label: tr('நிலுவை முதல்தொகை', 'Outstanding principal'),
               value: money(loan.outstanding),
             ),
+            if (loan.rate > 0) ...[
+              _DetailLine(
+                label: tr('வட்டி நிலுவை', 'Interest outstanding'),
+                value: money(interestOutstanding),
+              ),
+              _DetailLine(
+                label: tr('மாத வட்டி', 'Monthly interest'),
+                value: '${loan.rate}% · ${money(loan.monthlyInterest)}',
+              ),
+              _DetailLine(
+                label: tr('வட்டி செலுத்தும் தேதி', 'Interest due day'),
+                value: '${loan.dueDay}',
+              ),
+            ],
             _DetailLine(
-              label: tr('மாத வட்டி', 'Monthly interest'),
-              value: '${loan.rate}% · ${money(loan.monthlyInterest)}',
+              label: tr('மொத்த நிலுவை', 'Total outstanding'),
+              value: money(loan.totalOutstanding(today: now)),
             ),
             _DetailLine(
-              label: tr('வட்டி செலுத்தும் தேதி', 'Interest due day'),
-              value: '${loan.dueDay}',
-            ),
-            _DetailLine(
-              label: tr('தொடங்கிய தேதி', 'Start date'),
+              label: tr('கடன் தேதி', 'Loan date'),
               value: MaterialLocalizations.of(context)
                   .formatMediumDate(loan.startDate),
             ),
+            if (loan.rate > 0)
+              _DetailLine(
+                label: tr('வட்டி தொடங்கும் தேதி', 'Interest start date'),
+                value: MaterialLocalizations.of(context)
+                    .formatMediumDate(loan.interestStartDate),
+              ),
+            if (loan.rate > 0)
+              _DetailLine(
+                label: tr('முதல் வட்டி தவணை தேதி', 'First interest due date'),
+                value: MaterialLocalizations.of(context)
+                    .formatMediumDate(loan.firstInterestDueDate),
+              ),
+            if (loan.lastPaymentDate != null)
+              _DetailLine(
+                label: tr('கடைசி பணம் பெற்ற தேதி', 'Last payment date'),
+                value: MaterialLocalizations.of(context)
+                    .formatMediumDate(loan.lastPaymentDate!),
+              ),
             if (loan.note.isNotEmpty)
               _DetailLine(label: tr('குறிப்பு', 'Note'), value: loan.note),
-            const Divider(),
-            Text(tr('மாத வாரியான வட்டி கணக்கு', 'Monthly interest ledger'),
-                style: Theme.of(context).textTheme.titleMedium),
-            if (months.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(tr('பதிவுகள் இல்லை', 'No entries yet')),
-              ),
-            for (final month in months)
-              Builder(builder: (context) {
-                final status = loan.statusFor(month);
-                final date = DateTime(
-                  int.parse(month.substring(0, 4)),
-                  int.parse(month.substring(5, 7)),
-                );
-                final title =
-                    MaterialLocalizations.of(context).formatMonthYear(date);
-                final interestPayments = loan.payments
-                    .where((payment) =>
-                        payment.type == 'interest' && payment.month == month)
-                    .toList();
-                return ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: Text(title),
-                  subtitle: Text(
-                    '${tr('வட்டி', 'Interest')}: ${money(status.expected)} · ${tr('மீதி', 'Remaining')}: ${money(status.remaining)}',
-                  ),
-                  children: [
-                    ListTile(
-                      dense: true,
-                      title: Text(status.isDue
-                          ? tr('நிலுவை', 'Overdue')
-                          : status.remaining <= 0.009
-                              ? tr('செலுத்தப்பட்டது', 'Paid')
-                              : tr('நிலுவையில் இல்லை', 'Not yet due')),
-                      subtitle: Text(tr(
-                        'செலுத்த வேண்டிய தேதி: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
-                        'Due date: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
-                      )),
+            if (loan.hasInterestLedger) ...[
+              const Divider(),
+              Text(tr('மாத வாரியான வட்டி கணக்கு', 'Monthly interest ledger'),
+                  style: Theme.of(context).textTheme.titleMedium),
+              if (months.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(tr('பதிவுகள் இல்லை', 'No entries yet')),
+                ),
+              for (final month in months)
+                Builder(builder: (context) {
+                  final status = loan.statusFor(month);
+                  final date = DateTime(
+                    int.parse(month.substring(0, 4)),
+                    int.parse(month.substring(5, 7)),
+                  );
+                  final title =
+                      MaterialLocalizations.of(context).formatMonthYear(date);
+                  final interestPayments = loan.payments
+                      .where((payment) =>
+                          payment.type == 'interest' && payment.month == month)
+                      .toList();
+                  return ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(title),
+                    subtitle: Text(
+                      '${tr('வட்டி', 'Interest')}: ${money(status.expected)} · ${tr('மீதி', 'Remaining')}: ${money(status.remaining)}',
                     ),
-                    for (final payment in interestPayments)
+                    children: [
                       ListTile(
                         dense: true,
-                        leading: const Icon(Icons.check_circle_outline),
-                        title: Text(money(payment.amount)),
-                        subtitle: Text(MaterialLocalizations.of(context)
-                            .formatMediumDate(payment.date)),
+                        title: Text(status.isDue
+                            ? tr('நிலுவை', 'Overdue')
+                            : status.remaining <= 0.009
+                                ? tr('செலுத்தப்பட்டது', 'Paid')
+                                : tr('நிலுவையில் இல்லை', 'Not yet due')),
+                        subtitle: Text(tr(
+                          'செலுத்த வேண்டிய தேதி: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
+                          'Due date: ${MaterialLocalizations.of(context).formatMediumDate(status.dueDate)}',
+                        )),
                       ),
-                  ],
-                );
-              }),
+                      for (final payment in interestPayments)
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.check_circle_outline),
+                          title: Text(money(payment.amount)),
+                          subtitle: Text(MaterialLocalizations.of(context)
+                              .formatMediumDate(payment.date)),
+                        ),
+                    ],
+                  );
+                }),
+            ],
             if (loan.payments
                 .any((payment) => payment.type == 'principal')) ...[
               const Divider(),
