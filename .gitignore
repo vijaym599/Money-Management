@@ -1,0 +1,24 @@
+# Bundled development toolchains (not application source)
+/flutter/
+/.tooling/
+
+# Local editor settings
+/.vscode/
+
+# Generated distributables
+/*.apk
+
+# Flutter/Dart generated files
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/build/
+**/coverage/
+
+# Machine-specific Android SDK path
+/flutter_app/android/local.properties
+
+# IDE and OS files
+**/.idea/
+*.iml
+.DS_Store
+Thumbs.db

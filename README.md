@@ -1,0 +1,48 @@
+# கடன் கணக்கு — Flutter Android app
+
+தமிழ் / English ஆதரவுள்ள, இணையம் இல்லாமலும் இயங்கும் தனிப்பட்ட கடன் மற்றும் மாத வட்டி கணக்கு Android app.
+
+App source: [`flutter_app/`](./flutter_app/)
+
+## Offline மற்றும் privacy
+
+- Loan, interest, principal payment, profile, language, theme ஆகியவை சாதனத்தின் local preferences-ல் சேமிக்கப்படும்.
+- App இயங்க internet permission அல்லது server தேவையில்லை.
+- Android cloud/device backup திட்டமிட்டு disable செய்யப்பட்டுள்ளது.
+- JSON backup clipboard-க்கு copy செய்யலாம். அதில் நிதித் தகவல் இருப்பதால் பாதுகாப்பாக வைத்துக்கொள்ளவும்.
+- App uninstall / Clear storage செய்தால் local data அழியும்; முன்பே JSON backup எடுக்கவும்.
+
+## முக்கிய அம்சங்கள்
+
+- கொடுத்த / வாங்கிய கடன்கள்
+- மாத வட்டி மற்றும் முதல்தொகை செலுத்தல்கள்
+- எல்லா பழைய மாதங்களின் மொத்த வட்டி நிலுவை
+- பழைய நிலுவை மாதத்தை முதலில் செலுத்தும் workflow
+- பெயர் தேடல் மற்றும் வகை filter
+- Tamil / English, light / dark theme
+- JSON backup மற்றும் restore validation
+
+## Run மற்றும் test
+
+Flutter SDK, Android SDK, JDK 17 தேவை.
+
+```powershell
+cd "D:\Money MM\flutter_app"
+flutter pub get
+flutter analyze
+flutter test
+flutter run
+```
+
+சில Windows/Dart versions space உள்ள project path-ல் native-assets test hook-ஐ தவறாக இயக்கலாம். அப்படி ஏற்பட்டால் project-ஐ `D:\MoneyMM` போன்ற space இல்லாத path-க்கு மாற்றவும்.
+
+## APK build
+
+```powershell
+cd "D:\Money MM\flutter_app"
+flutter build apk --release
+```
+
+APK: `flutter_app\build\app\outputs\flutter-apk\app-release.apk`
+
+இந்த project தற்போது தனிப்பட்ட sideload பயன்பாட்டிற்கு debug signing fallback பயன்படுத்துகிறது. Play Store release-க்கு தனிப்பட்ட upload keystore மற்றும் release signing configuration சேர்க்க வேண்டும்.
