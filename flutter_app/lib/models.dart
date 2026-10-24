@@ -112,6 +112,7 @@ class Loan {
     required this.note,
     required this.payments,
     this.phone = '',
+    this.closedAt,
     Map<String, InterestPeriodSnapshot> interestPeriodSnapshots = const {},
   })  : interestStartDate = interestStartDate ?? startDate,
         firstInterestDueDate = firstInterestDueDate ??
@@ -130,7 +131,10 @@ class Loan {
   final String note;
   final List<LoanPayment> payments;
   final String phone;
+  final DateTime? closedAt;
   final Map<String, InterestPeriodSnapshot> interestPeriodSnapshots;
+
+  bool get isClosed => closedAt != null;
 
   Loan copyWith({
     String? direction,
@@ -144,6 +148,7 @@ class Loan {
     DateTime? interestStartDate,
     DateTime? firstInterestDueDate,
     String? note,
+    DateTime? closedAt,
     Map<String, InterestPeriodSnapshot>? interestPeriodSnapshots,
   }) =>
       Loan(
@@ -159,6 +164,7 @@ class Loan {
         note: note ?? this.note,
         payments: payments ?? this.payments,
         phone: phone ?? this.phone,
+        closedAt: closedAt ?? this.closedAt,
         interestPeriodSnapshots:
             interestPeriodSnapshots ?? this.interestPeriodSnapshots,
       );
@@ -204,6 +210,7 @@ class Loan {
       note: note,
       payments: payments,
       phone: phone,
+      closedAt: closedAt,
       interestPeriodSnapshots: snapshots,
     );
   }
@@ -237,8 +244,7 @@ class Loan {
   /// periods are charged in full; the active period is prorated by days and
   /// is not treated as overdue.
   double accruedInterest({DateTime? today}) {
-    final now = today ?? DateTime.now();
-    final day = DateTime(now.year, now.month, now.day);
+    final day = _effectiveDate(today);
     return monthsThrough(day).fold<double>(
       0,
       (sum, month) => sum + accruedInterestForMonth(month, today: day),
@@ -246,8 +252,7 @@ class Loan {
   }
 
   double accruedInterestForMonth(String month, {DateTime? today}) {
-    final now = today ?? DateTime.now();
-    final day = DateTime(now.year, now.month, now.day);
+    final day = _effectiveDate(today);
     final status = statusFor(month, today: day);
     if (status.due) return status.remaining;
 
@@ -263,11 +268,17 @@ class Loan {
   double totalOutstanding({DateTime? today}) =>
       outstanding + interestOutstanding(today: today);
 
+  double settlementOutstanding({DateTime? today}) =>
+      outstanding + accruedInterest(today: today);
+
+  bool canClose({DateTime? today}) =>
+      !isClosed && settlementOutstanding(today: today) <= 0.009;
+
   bool hasPartialPayments({DateTime? today}) =>
       payments.isNotEmpty && totalOutstanding(today: today) > 0.009;
 
   bool isCompleted({DateTime? today}) =>
-      totalOutstanding(today: today) <= 0.009;
+      settlementOutstanding(today: today) <= 0.009;
 
   double interestForMonth(String month) {
     if (!_isMonth(month)) return 0;
@@ -290,7 +301,8 @@ class Loan {
       .fold<double>(0, (sum, payment) => sum + payment.amount);
 
   List<String> monthsThrough(DateTime date) {
-    final last = DateTime(date.year, date.month);
+    final effectiveDate = _effectiveDate(date);
+    final last = DateTime(effectiveDate.year, effectiveDate.month);
     final lastKey = _monthKey(last);
     final result = <String>{};
     if (rate > 0) {
@@ -314,7 +326,7 @@ class Loan {
   }
 
   double overdueInterest({DateTime? today}) {
-    final now = today ?? DateTime.now();
+    final now = _effectiveDate(today);
     return monthsThrough(now).fold<double>(0, (sum, month) {
       final status = statusFor(month, today: now);
       return sum + (status.due ? status.remaining : 0);
@@ -322,14 +334,14 @@ class Loan {
   }
 
   int overdueMonthCount({DateTime? today}) {
-    final now = today ?? DateTime.now();
+    final now = _effectiveDate(today);
     return monthsThrough(now)
         .where((month) => statusFor(month, today: now).isDue)
         .length;
   }
 
   String? oldestUnpaidMonth({DateTime? today, bool dueOnly = false}) {
-    final now = today ?? DateTime.now();
+    final now = _effectiveDate(today);
     for (final month in monthsThrough(now)) {
       final status = statusFor(month, today: now);
       if (status.remaining > 0.009 && (!dueOnly || status.due)) return month;
@@ -343,8 +355,7 @@ class Loan {
     }
     final snapshot = interestPeriodSnapshots[month];
     final dueDate = snapshot?.dueDate ?? _interestDueDate(month);
-    final now = today ?? DateTime.now();
-    final todayAtMidnight = DateTime(now.year, now.month, now.day);
+    final todayAtMidnight = _effectiveDate(today);
     final expected = interestForMonth(month);
     final paid = paidInterestForMonth(month);
     final remaining = math.max(0.0, expected - paid);
@@ -393,7 +404,20 @@ class Loan {
         .add(const Duration(days: 1));
   }
 
-  List<String> get months => monthsThrough(DateTime.now());
+  DateTime interestPeriodStart(String month) => _interestPeriodStart(month);
+
+  DateTime interestPeriodEnd(String month) => statusFor(month).dueDate;
+
+  DateTime _effectiveDate(DateTime? requested) {
+    final value = requested ?? DateTime.now();
+    final day = DateTime(value.year, value.month, value.day);
+    final closed = closedAt;
+    if (closed == null) return day;
+    final closedDay = DateTime(closed.year, closed.month, closed.day);
+    return day.isAfter(closedDay) ? closedDay : day;
+  }
+
+  List<String> get months => monthsThrough(_effectiveDate(null));
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -407,6 +431,7 @@ class Loan {
         'firstInterestDueDate': _dateKey(firstInterestDueDate),
         'note': note,
         'phone': phone,
+        'closedAt': closedAt == null ? null : _dateKey(closedAt!),
         'payments': payments.map((payment) => payment.toJson()).toList(),
         'interestPeriodSnapshots': interestPeriodSnapshots.map(
           (month, snapshot) => MapEntry(month, snapshot.toJson()),
@@ -420,6 +445,7 @@ class Loan {
     final dueDay = json['dueDay'];
     final rawPayments = json['payments'];
     final person = json['person'];
+    final rawClosedAt = json['closedAt'];
     if (json['id'] is! String ||
         (json['id'] as String).trim().isEmpty ||
         (direction != 'given' && direction != 'taken') ||
@@ -438,10 +464,13 @@ class Loan {
         json['startDate'] is! String ||
         (json['note'] != null && json['note'] is! String) ||
         (json['phone'] != null && json['phone'] is! String) ||
+        (rawClosedAt != null && rawClosedAt is! String) ||
         rawPayments is! List) {
       throw const FormatException('Invalid loan record.');
     }
     final startDate = _parseDate(json['startDate']! as String);
+    final closedAt =
+        rawClosedAt == null ? null : _parseDate(rawClosedAt as String);
     final rawInterestStartDate = json['interestStartDate'];
     if (rawInterestStartDate != null && rawInterestStartDate is! String) {
       throw const FormatException('Invalid interest start date.');
@@ -480,6 +509,7 @@ class Loan {
     if (interestStartDate.isBefore(startDate) ||
         (rate > 0 && firstInterestDueDate.isBefore(interestStartDate)) ||
         payments.any((payment) => payment.date.isBefore(startDate)) ||
+        (closedAt != null && closedAt.isBefore(startDate)) ||
         payments.any((payment) =>
             payment.type == 'interest' &&
             payment.month!.compareTo(_monthKey(interestStartDate)) < 0 &&
@@ -504,6 +534,7 @@ class Loan {
       firstInterestDueDate: firstInterestDueDate,
       note: json['note'] as String? ?? '',
       phone: (json['phone'] as String? ?? '').trim(),
+      closedAt: closedAt,
       payments: payments,
       interestPeriodSnapshots: snapshots,
     );
@@ -511,6 +542,10 @@ class Loan {
         .where((payment) => payment.type == 'interest')
         .map((payment) => payment.month!)
         .toSet();
+    if (loan.isClosed &&
+        loan.settlementOutstanding(today: loan.closedAt) > 0.009) {
+      throw const FormatException('A closed loan must be fully settled.');
+    }
     for (final month in interestMonths) {
       if (loan.paidInterestForMonth(month) >
           loan.interestForMonth(month) + 0.009) {

@@ -18,9 +18,22 @@ void main() {
         TestFlutterSecureStoragePlatform(secureData);
   });
 
+  testWidgets('uses English for a fresh install', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('No loans yet'), findsOneWidget);
+    expect(find.text('New loan'), findsWidgets);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('adds a loan and saves an interest payment locally',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     await tester.pumpWidget(const KadanKanakkuApp());
     await tester.pumpAndSettle();
 
@@ -71,13 +84,15 @@ void main() {
 
   testWidgets('premium navigation and interest calculator work',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     await tester.pumpWidget(const KadanKanakkuApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('கடன்கள்'));
     await tester.pumpAndSettle();
-    expect(find.text('0 செயலில் உள்ள கணக்குகள்'), findsOneWidget);
+    expect(find.text('0 செயலில் • 0 மூடப்பட்டது'), findsOneWidget);
 
     await tester.tap(find.text('நபர்கள்'));
     await tester.pumpAndSettle();
@@ -120,7 +135,9 @@ void main() {
 
   testWidgets('creates and lists an interest-free loan separately',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     await tester.pumpWidget(const KadanKanakkuApp());
     await tester.pumpAndSettle();
 
@@ -168,9 +185,74 @@ void main() {
     expect(find.text('₹5,000'), findsWidgets);
   });
 
-  testWidgets('app lock rejects a wrong PIN and unlocks with the saved PIN',
+  testWidgets('settled loan closes before it can be permanently deleted',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+    final today = DateTime.now();
+    final settledLoan = Loan(
+      id: 'settled-close-flow',
+      direction: 'given',
+      person: 'Kumar',
+      principal: 5000,
+      rate: 0,
+      dueDay: 5,
+      startDate: DateTime(today.year - 1, 1, 1),
+      note: '',
+      payments: [
+        LoanPayment(
+          id: 'full-principal-payment',
+          type: 'principal',
+          amount: 5000,
+          date: today,
+        ),
+      ],
+    );
+    secureData[SecureDataStore.loansKey] = jsonEncode([settledLoan.toJson()]);
+
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Loans'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Close loan'), findsOneWidget);
+    expect(find.text('Delete'), findsNothing);
+    await tester.tap(find.text('Close loan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Close loan').last);
+    await tester.pumpAndSettle();
+
+    var stored = jsonDecode(secureData[SecureDataStore.loansKey]!) as List;
+    expect(Loan.fromJson(Map<String, Object?>.from(stored.single)).isClosed,
+        isTrue);
+
+    final filterScroller = find.byWidgetPredicate(
+      (widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal,
+    );
+    await tester.drag(filterScroller.first, const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Closed'));
+    await tester.pumpAndSettle();
+    expect(find.text('Kumar'), findsOneWidget);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    stored = jsonDecode(secureData[SecureDataStore.loansKey]!) as List;
+    expect(stored, isEmpty);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('app lock rejects a wrong PIN and unlocks with the saved PIN',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     final preferences = await SharedPreferences.getInstance();
     await SecureDataStore.instance.setPin(preferences, '2468');
 
@@ -193,7 +275,9 @@ void main() {
 
   testWidgets('reports show advanced analytics from real loan data',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     final loan = Loan(
       id: 'analytics-loan',
       direction: 'given',
@@ -222,7 +306,9 @@ void main() {
 
   testWidgets('people with one loan open the redesigned detail page directly',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'kadan-kanakku-language': 'ta',
+    });
     final loan = Loan(
       id: 'direct-person-loan',
       direction: 'given',

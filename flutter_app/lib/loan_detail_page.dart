@@ -78,14 +78,27 @@ class _LoanDetailsPage extends StatelessWidget {
                   money: _money,
                 ),
                 const SizedBox(height: 14),
-                SizedBox(
-                  height: 48,
-                  child: FilledButton.icon(
-                    onPressed: onPayment,
-                    icon: const Icon(Icons.add_card_rounded),
-                    label: Text(_tr('செலுத்தல் பதிவு', 'Record payment')),
+                if (loan.isClosed)
+                  _SectionCard(
+                    title: _tr('மூடப்பட்ட கடன்', 'Closed loan'),
+                    icon: Icons.inventory_2_outlined,
+                    rows: [
+                      _InfoRow(
+                        label: _tr('மூடிய தேதி', 'Closed on'),
+                        value: date.formatMediumDate(loan.closedAt!),
+                        highlight: true,
+                      ),
+                    ],
+                  )
+                else
+                  SizedBox(
+                    height: 48,
+                    child: FilledButton.icon(
+                      onPressed: onPayment,
+                      icon: const Icon(Icons.add_card_rounded),
+                      label: Text(_tr('செலுத்தல் பதிவு', 'Record payment')),
+                    ),
                   ),
-                ),
                 const SizedBox(height: 14),
                 _SectionCard(
                   title: _tr('கணக்கு சுருக்கம்', 'Account summary'),

@@ -1,4 +1,4 @@
-# கடன் கணக்கு
+# LoanTrack
 
 Offline-first Flutter Android loan and monthly-interest ledger.
 

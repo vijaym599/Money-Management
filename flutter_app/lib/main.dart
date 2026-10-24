@@ -73,7 +73,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   bool _biometricAvailable = false;
   bool _locked = false;
   bool _authenticating = false;
-  String _language = 'ta';
+  String _language = 'en';
   String _profileName = '';
   String _profilePhone = '';
   String? _loadError;
@@ -133,7 +133,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       if (!mounted) return;
       setState(() {
         _loans = loans;
-        _language = preferences.getString(_languageKey) == 'en' ? 'en' : 'ta';
+        _language = preferences.getString(_languageKey) == 'ta' ? 'ta' : 'en';
         _darkMode = preferences.getBool(_themeKey) ?? false;
         _profileName = preferences.getString(_nameKey) ?? '';
         _profilePhone = preferences.getString(_phoneKey) ?? '';
@@ -392,6 +392,13 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   }
 
   Future<void> _addPayment(Loan loan) async {
+    if (loan.isClosed) {
+      _message(_tr(
+        'மூடப்பட்ட கடனில் புதிய செலுத்தலை பதிவு செய்ய முடியாது.',
+        'Payments cannot be added to a closed loan.',
+      ));
+      return;
+    }
     final payment = await showDialog<LoanPayment>(
       context: _appContext,
       builder: (_) => PaymentFormDialog(loan: loan, isTamil: _isTamil),
@@ -411,6 +418,47 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       appIsTamil: _isTamil,
       initialType: LoanShareType.paymentReceipt,
       payment: payment,
+    );
+  }
+
+  Future<void> _closeLoan(Loan loan) async {
+    final today = DateTime.now();
+    if (!loan.canClose(today: today)) {
+      final pending = loan.settlementOutstanding(today: today);
+      _message(_tr(
+        'கடனை மூடுவதற்கு முன் முதல்தொகை மற்றும் சேர்ந்த வட்டி முழுவதையும் செலுத்தவும். நிலுவை: ${NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2).format(pending)}',
+        'Settle the principal and accrued interest before closing. Remaining: ${NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2).format(pending)}',
+      ));
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('கடனை மூடவா?', 'Close this loan?')),
+        content: Text(_tr(
+          '${loan.person} கணக்கு மூடப்பட்ட கடன்கள் பகுதியில் பாதுகாப்பாக வைக்கப்படும்.',
+          '${loan.person} will be moved to Closed loans and its history will be preserved.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('கடனை மூடு', 'Close loan')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final closedAt = DateTime(today.year, today.month, today.day);
+    await _saveLoans(
+      _loans
+          .map((item) =>
+              item.id == loan.id ? item.copyWith(closedAt: closedAt) : item)
+          .toList(),
     );
   }
 
@@ -473,10 +521,17 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   }
 
   Future<void> _deleteLoan(Loan loan) async {
+    if (!loan.isClosed) {
+      _message(_tr(
+        'செயலில் உள்ள கடனை நேரடியாக நீக்க முடியாது. முதலில் நிலுவையை முடித்து கடனை மூடவும்.',
+        'An active loan cannot be deleted. Settle it and close the loan first.',
+      ));
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: _appContext,
       builder: (dialogContext) => AlertDialog(
-        title: Text(_tr('கடனை நீக்கவா?', 'Delete this loan?')),
+        title: Text(_tr('மூடப்பட்ட கடனை நீக்கவா?', 'Delete closed loan?')),
         content: Text(_tr(
           '${loan.person} மற்றும் அதன் செலுத்தல் வரலாறு நீக்கப்படும்.',
           '${loan.person} and its payment history will be deleted.',
@@ -771,7 +826,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       navigatorKey: _navigatorKey,
       scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
-      title: 'கடன் கணக்கு',
+      title: 'LoanTrack',
       locale: locale,
       themeAnimationDuration: const Duration(milliseconds: 300),
       themeAnimationCurve: Curves.easeOutCubic,
@@ -902,6 +957,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                   onPayment: _addPayment,
                   onEditPhone: _editLoanPhone,
                   onSharePdf: _shareLoanPdf,
+                  onClose: _closeLoan,
                   onDelete: _deleteLoan,
                   onDetails: (context, loan) => showLoanDetailsPage(
                     context,
@@ -1005,7 +1061,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
                           const SizedBox(height: 18),
                           Text(
                             _tr('கடன் கணக்கு பூட்டப்பட்டுள்ளது',
-                                'Money MM is locked'),
+                                'LoanTrack is locked'),
                             textAlign: TextAlign.center,
                             style: Theme.of(context)
                                 .textTheme
@@ -1321,7 +1377,7 @@ class _HomePageState extends State<_HomePage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('கடன் கணக்கு', style: TextStyle(fontSize: 17)),
+                const Text('LoanTrack', style: TextStyle(fontSize: 17)),
                 Text(
                   _tr('உங்கள் கணக்கு · உங்கள் கட்டுப்பாடு',
                       'Your money, in control'),
@@ -2524,6 +2580,23 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
                         });
                       }
                     },
+                  ),
+                if (_type == 'interest') const SizedBox(height: 12),
+                if (_type == 'interest')
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _tr(
+                        'வட்டி காலம்: ${MaterialLocalizations.of(context).formatMediumDate(_loan.interestPeriodStart(_month))} – ${MaterialLocalizations.of(context).formatMediumDate(_loan.interestPeriodEnd(_month))}',
+                        'Interest period: ${MaterialLocalizations.of(context).formatMediumDate(_loan.interestPeriodStart(_month))} – ${MaterialLocalizations.of(context).formatMediumDate(_loan.interestPeriodEnd(_month))}',
+                      ),
+                    ),
                   ),
                 if (_type == 'interest') const SizedBox(height: 12),
                 TextFormField(

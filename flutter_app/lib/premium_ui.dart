@@ -28,66 +28,57 @@ class PremiumSplash extends StatelessWidget {
             ),
           ),
           child: Center(
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: .86, end: 1),
-              duration: const Duration(milliseconds: 700),
-              curve: Curves.easeOutBack,
-              builder: (context, value, child) => Transform.scale(
-                scale: value,
-                child: child,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x33000000),
-                          blurRadius: 28,
-                          offset: Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: _brandBlue,
-                      size: 38,
-                    ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x33000000),
+                        blurRadius: 28,
+                        offset: Offset(0, 12),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 22),
-                  const Text(
-                    'கடன் கணக்கு',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 27,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -.4,
-                    ),
+                  child: const Icon(
+                    Icons.account_balance_wallet_rounded,
+                    color: _brandBlue,
+                    size: 38,
                   ),
-                  const SizedBox(height: 7),
-                  Text(
-                    'Your money. Clearly managed.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: .72),
-                      fontWeight: FontWeight.w500,
-                    ),
+                ),
+                const SizedBox(height: 22),
+                const Text(
+                  'LoanTrack',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 27,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -.4,
                   ),
-                  const SizedBox(height: 36),
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2.4,
-                    ),
+                ),
+                const SizedBox(height: 7),
+                const Text(
+                  'Your money. Clearly managed.',
+                  style: TextStyle(
+                    color: Color(0xB8FFFFFF),
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 36),
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.4,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -109,6 +100,7 @@ class PremiumAppShell extends StatefulWidget {
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
+    required this.onClose,
     required this.onDelete,
     required this.onDetails,
     required this.onLanguageChanged,
@@ -137,6 +129,7 @@ class PremiumAppShell extends StatefulWidget {
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
+  final ValueChanged<Loan> onClose;
   final ValueChanged<Loan> onDelete;
   final void Function(BuildContext context, Loan loan) onDetails;
   final ValueChanged<String> onLanguageChanged;
@@ -211,6 +204,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
   @override
   Widget build(BuildContext context) {
     final loans = widget.loans;
+    final activeLoans = loans.where((loan) => !loan.isClosed).toList();
     final isTamil = widget.isTamil;
     final darkMode = widget.darkMode;
     final profileName = widget.profileName;
@@ -221,6 +215,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final onPayment = widget.onPayment;
     final onEditPhone = widget.onEditPhone;
     final onSharePdf = widget.onSharePdf;
+    final onClose = widget.onClose;
     final onDelete = widget.onDelete;
     final onDetails = widget.onDetails;
     final onLanguageChanged = widget.onLanguageChanged;
@@ -235,7 +230,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final onBackup = widget.onBackup;
     final pages = <Widget>[
       _DashboardPage(
-        loans: loans,
+        loans: activeLoans,
         isTamil: isTamil,
         profileName: profileName,
         loadError: loadError,
@@ -257,11 +252,12 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
         onPayment: onPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
+        onClose: onClose,
         onDelete: onDelete,
         onDetails: onDetails,
       ),
       _PeoplePage(
-        loans: loans,
+        loans: activeLoans,
         isTamil: isTamil,
         onEditLoan: onEditLoan,
         onPayment: onPayment,
@@ -531,6 +527,7 @@ class _LoansPage extends StatefulWidget {
     required this.onPayment,
     required this.onEditPhone,
     required this.onSharePdf,
+    required this.onClose,
     required this.onDelete,
     required this.onDetails,
   });
@@ -542,6 +539,7 @@ class _LoansPage extends StatefulWidget {
   final ValueChanged<Loan> onPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
+  final ValueChanged<Loan> onClose;
   final ValueChanged<Loan> onDelete;
   final void Function(BuildContext, Loan) onDetails;
 
@@ -562,12 +560,16 @@ class _LoansPageState extends State<_LoansPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final activeCount = widget.loans.where((loan) => !loan.isClosed).length;
+    final closedCount = widget.loans.length - activeCount;
     final shown = widget.loans.where((loan) {
       final directionMatches = switch (_filter) {
-        'given' => loan.direction == 'given' && loan.rate > 0,
-        'taken' => loan.direction == 'taken',
-        'interest_free' => loan.direction == 'given' && loan.rate == 0,
-        _ => true,
+        'given' => !loan.isClosed && loan.direction == 'given' && loan.rate > 0,
+        'taken' => !loan.isClosed && loan.direction == 'taken',
+        'interest_free' =>
+          !loan.isClosed && loan.direction == 'given' && loan.rate == 0,
+        'closed' => loan.isClosed,
+        _ => !loan.isClosed,
       };
       final queryMatches =
           loan.person.toLowerCase().contains(_query.toLowerCase());
@@ -582,8 +584,8 @@ class _LoansPageState extends State<_LoansPage>
           _TopHeader(
             title: _tr('கடன்கள்', 'Loans'),
             subtitle: _tr(
-              '${widget.loans.length} செயலில் உள்ள கணக்குகள்',
-              '${widget.loans.length} active accounts',
+              '$activeCount செயலில் • $closedCount மூடப்பட்டது',
+              '$activeCount active • $closedCount closed',
             ),
             trailing: IconButton.filledTonal(
               tooltip: _tr('புதிய கடன்', 'New loan'),
@@ -624,6 +626,11 @@ class _LoansPageState extends State<_LoansPage>
                   label: Text(_tr('வட்டி இல்லாமல்', 'Interest-free')),
                   icon: const Icon(Icons.favorite_outline_rounded),
                 ),
+                ButtonSegment(
+                  value: 'closed',
+                  label: Text(_tr('மூடப்பட்டது', 'Closed')),
+                  icon: const Icon(Icons.inventory_2_outlined),
+                ),
               ],
               selected: {_filter},
               onSelectionChanged: (value) =>
@@ -653,12 +660,14 @@ class _LoansPageState extends State<_LoansPage>
               _PremiumLoanCard(
                 loan: loan,
                 isTamil: widget.isTamil,
-                showDelete: true,
+                showClose: !loan.isClosed && loan.canClose(),
+                showDelete: loan.isClosed,
                 onEdit: () => widget.onEditLoan(loan),
                 onPayment: () => widget.onPayment(loan),
                 onEditPhone: () => widget.onEditPhone(loan),
                 onSharePdf: () => widget.onSharePdf(loan),
                 onDetails: () => widget.onDetails(context, loan),
+                onClose: () => widget.onClose(loan),
                 onDelete: () => widget.onDelete(loan),
               ),
           const SizedBox(height: 100),
@@ -1917,6 +1926,8 @@ class _PremiumLoanCard extends StatelessWidget {
     required this.onSharePdf,
     required this.onDetails,
     this.showDelete = false,
+    this.showClose = false,
+    this.onClose,
     this.onDelete,
   });
 
@@ -1928,6 +1939,8 @@ class _PremiumLoanCard extends StatelessWidget {
   final VoidCallback onSharePdf;
   final VoidCallback onDetails;
   final bool showDelete;
+  final bool showClose;
+  final VoidCallback? onClose;
   final VoidCallback? onDelete;
 
   String _tr(String ta, String en) => isTamil ? ta : en;
@@ -1998,20 +2011,24 @@ class _PremiumLoanCard extends StatelessWidget {
                   ),
                 ),
                 _StatusPill(
-                  text: loan.isCompleted(today: now)
-                      ? _tr('முடிந்தது', 'Settled')
-                      : overdue > .009
-                          ? _tr('நிலுவை', 'Overdue')
-                          : !interestFree && status.remaining <= .009
-                              ? _tr('செலுத்தியது', 'Settled')
-                              : _tr('செயலில்', 'Active'),
-                  color: loan.isCompleted(today: now)
-                      ? _success
-                      : overdue > .009
-                          ? const Color(0xFFEF5350)
-                          : !interestFree && status.remaining <= .009
-                              ? _success
-                              : accent,
+                  text: loan.isClosed
+                      ? _tr('மூடப்பட்டது', 'Closed')
+                      : loan.isCompleted(today: now)
+                          ? _tr('முடிந்தது', 'Settled')
+                          : overdue > .009
+                              ? _tr('நிலுவை', 'Overdue')
+                              : !interestFree && status.remaining <= .009
+                                  ? _tr('செலுத்தியது', 'Settled')
+                                  : _tr('செயலில்', 'Active'),
+                  color: loan.isClosed
+                      ? Theme.of(context).colorScheme.outline
+                      : loan.isCompleted(today: now)
+                          ? _success
+                          : overdue > .009
+                              ? const Color(0xFFEF5350)
+                              : !interestFree && status.remaining <= .009
+                                  ? _success
+                                  : accent,
                 ),
                 PopupMenuButton<String>(
                   tooltip: _tr('மேலும்', 'More'),
@@ -2019,40 +2036,63 @@ class _PremiumLoanCard extends StatelessWidget {
                     if (value == 'edit') onEdit();
                     if (value == 'contact') onEditPhone();
                     if (value == 'pdf') onSharePdf();
+                    if (value == 'close') onClose?.call();
                     if (value == 'delete') onDelete?.call();
                   },
                   itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.edit_calendar_outlined),
-                          const SizedBox(width: 9),
-                          Text(_tr('கடன் அமைப்புகளைத் திருத்து',
-                              'Edit loan settings')),
-                        ],
+                    if (!loan.isClosed)
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.edit_calendar_outlined),
+                            const SizedBox(width: 9),
+                            Flexible(
+                              child: Text(_tr('கடன் அமைப்புகளைத் திருத்து',
+                                  'Edit loan settings')),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    PopupMenuItem(
-                      value: 'contact',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.phone_outlined),
-                          const SizedBox(width: 9),
-                          Text(_tr('தொடர்பு எண்', 'Contact number')),
-                        ],
+                    if (!loan.isClosed)
+                      PopupMenuItem(
+                        value: 'contact',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.phone_outlined),
+                            const SizedBox(width: 9),
+                            Flexible(
+                              child: Text(_tr('தொடர்பு எண்', 'Contact number')),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
                     PopupMenuItem(
                       value: 'pdf',
                       child: Row(
                         children: [
                           const Icon(Icons.picture_as_pdf_outlined),
                           const SizedBox(width: 9),
-                          Text(_tr('PDF அறிக்கை பகிர்', 'Share PDF statement')),
+                          Flexible(
+                            child: Text(_tr(
+                                'PDF அறிக்கை பகிர்', 'Share PDF statement')),
+                          ),
                         ],
                       ),
                     ),
+                    if (showClose)
+                      PopupMenuItem(
+                        value: 'close',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.task_alt_rounded),
+                            const SizedBox(width: 9),
+                            Flexible(
+                              child: Text(_tr('கடனை மூடு', 'Close loan')),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (showDelete)
                       PopupMenuItem(
                         value: 'delete',
@@ -2060,7 +2100,9 @@ class _PremiumLoanCard extends StatelessWidget {
                           children: [
                             const Icon(Icons.delete_outline_rounded),
                             const SizedBox(width: 9),
-                            Text(_tr('நீக்கு', 'Delete')),
+                            Flexible(
+                              child: Text(_tr('நீக்கு', 'Delete')),
+                            ),
                           ],
                         ),
                       ),
@@ -2124,11 +2166,30 @@ class _PremiumLoanCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onPayment,
-                    icon: const Icon(Icons.add_card_rounded, size: 18),
-                    label: Text(_tr('செலுத்தல் பதிவு', 'Record payment')),
-                  ),
+                  child: loan.isClosed
+                      ? OutlinedButton.icon(
+                          onPressed: null,
+                          icon:
+                              const Icon(Icons.inventory_2_outlined, size: 18),
+                          label: Text(_tr(
+                            'மூடப்பட்ட கணக்கு',
+                            'Closed account',
+                          )),
+                        )
+                      : showClose
+                          ? FilledButton.icon(
+                              onPressed: onClose,
+                              icon:
+                                  const Icon(Icons.task_alt_rounded, size: 18),
+                              label: Text(_tr('கடனை மூடு', 'Close loan')),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: onPayment,
+                              icon:
+                                  const Icon(Icons.add_card_rounded, size: 18),
+                              label: Text(
+                                  _tr('செலுத்தல் பதிவு', 'Record payment')),
+                            ),
                 ),
                 const SizedBox(width: 10),
                 if (isGiven) ...[
@@ -3018,6 +3079,13 @@ class _TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isInterest = entry.payment.type == 'interest';
     return ListTile(
+      onTap: () => showLoanShareSheet(
+        context,
+        loan: entry.loan,
+        appIsTamil: isTamil,
+        initialType: LoanShareType.paymentReceipt,
+        payment: entry.payment,
+      ),
       leading: Container(
         width: 42,
         height: 42,
@@ -3036,9 +3104,26 @@ class _TransactionTile extends StatelessWidget {
       subtitle: Text(
         '${isTamil ? (isInterest ? 'வட்டி' : 'முதல்தொகை') : (isInterest ? 'Interest' : 'Principal')} • ${DateFormat('d MMM yyyy').format(entry.payment.date)}',
       ),
-      trailing: Text(
-        _money(entry.payment.amount),
-        style: const TextStyle(fontWeight: FontWeight.w800),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _money(entry.payment.amount),
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: isTamil ? 'ரசீதை அனுப்பு' : 'Send receipt',
+            onPressed: () => showLoanShareSheet(
+              context,
+              loan: entry.loan,
+              appIsTamil: isTamil,
+              initialType: LoanShareType.paymentReceipt,
+              payment: entry.payment,
+            ),
+            icon: const Icon(Icons.send_outlined, size: 19),
+          ),
+        ],
       ),
     );
   }

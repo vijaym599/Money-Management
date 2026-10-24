@@ -159,11 +159,35 @@ void main() {
         today: DateTime(2026, 2, 12),
       );
 
-      expect(message, contains('Receipt reference: MM-payment-unique-42'));
+      expect(message, contains('LoanTrack – Payment Receipt'));
+      expect(message, contains('Receipt reference: LT-payment-unique-42'));
       expect(message, contains('Amount received: *₹2,500*'));
       expect(message, contains('Principal paid: ₹2,500'));
       expect(message, contains('Remaining balance: *₹7,500*'));
       expect(message, isNot(contains('Interest paid')));
+    });
+
+    test('interest receipt includes month and exact interest period', () {
+      final payment = LoanPayment(
+        id: 'interest-period-receipt',
+        type: 'interest',
+        amount: 200,
+        date: DateTime(2026, 2, 9),
+        month: '2026-01',
+      );
+      final message = LoanShareMessageBuilder.build(
+        loan: loan(
+          interestStartDate: DateTime(2026, 1, 10),
+          payments: [payment],
+        ),
+        type: LoanShareType.paymentReceipt,
+        language: LoanShareLanguage.english,
+        payment: payment,
+        today: DateTime(2026, 2, 9),
+      );
+
+      expect(message, contains('Interest month: Jan 2026'));
+      expect(message, contains('Interest period: 10-01-2026 – 09-02-2026'));
     });
 
     test('never builds a receipt for an unrecorded payment', () {

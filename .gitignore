@@ -2,23 +2,85 @@
 /flutter/
 /.tooling/
 
-# Local editor settings
+# Local editor and operating-system state
 /.vscode/
-
-# Generated distributables
-/*.apk
-
-# Flutter/Dart generated files
-**/.dart_tool/
-**/.flutter-plugins-dependencies
-**/build/
-**/coverage/
-
-# Machine-specific Android SDK path
-/flutter_app/android/local.properties
-
-# IDE and OS files
 **/.idea/
 *.iml
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Environment files and local secret stores
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+*.secrets
+*.secret
+secrets/
+**/secrets/
+
+# Private keys, certificates, and signing material
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.der
+*.crt
+*.cer
+*.keystore
+*.jks
+**/key.properties
+**/keystore.properties
+**/google-services.json
+**/GoogleService-Info.plist
+**/service-account*.json
+
+# Databases, customer-data exports, and backups
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+*.bak
+*.backup
+backups/
+**/backups/
+
+# Logs, crash dumps, and local reports
+*.log
+*.log.*
+*.stackdump
+crashlytics-build.properties
+gitleaks-report.*
+
+# Generated distributables
+/*.apk
+/*.aab
+**/app-release.apk
+**/app-release.aab
+
+# Flutter/Dart generated files and caches
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/build/
+**/coverage/
+**/doc/api/
+**/.widget_preview/
+**/app.*.symbols
+**/app.*.map.json
+
+# Android/Gradle generated and machine-specific state
+**/.gradle/
+**/.kotlin/
+**/.cxx/
+**/captures/
+/flutter_app/android/local.properties

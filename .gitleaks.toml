@@ -1,0 +1,37 @@
+title = "Money MM Gitleaks configuration"
+
+# Retain the complete upstream detector set. Project-specific rules can be added
+# below without replacing Gitleaks' maintained defaults.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "money-mm-sensitive-assignment"
+description = "Generic credential-like assignment"
+regex = '''(?i)(api[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|password|passwd|private[_-]?key)[[:space:]]*[:=][[:space:]]*["']?([A-Za-z0-9_./+=:@-]{12,})'''
+secretGroup = 2
+keywords = [
+  "api_key",
+  "api-key",
+  "client_secret",
+  "client-secret",
+  "access_token",
+  "access-token",
+  "auth_token",
+  "auth-token",
+  "password",
+  "passwd",
+  "private_key",
+  "private-key",
+]
+
+[[rules.allowlists]]
+description = "Explicit non-secret template markers"
+stopwords = [
+  "change_me",
+  "changeme",
+  "example",
+  "placeholder",
+  "replace_me",
+  "your_value_here",
+]

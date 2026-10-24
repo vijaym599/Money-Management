@@ -187,6 +187,53 @@ void main() {
       expect(Loan.fromJson(oldData).phone, isEmpty);
     });
 
+    test('closes only a settled loan and preserves closure in storage', () {
+      final principalPayment = LoanPayment(
+        id: 'principal-settlement',
+        type: 'principal',
+        amount: 5000,
+        date: DateTime(2026, 10, 20),
+      );
+      final active = Loan(
+        id: 'loan-to-close',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 5000,
+        rate: 0,
+        dueDay: 5,
+        startDate: DateTime(2026, 10, 1),
+        note: '',
+        payments: [principalPayment],
+      );
+
+      expect(active.canClose(today: DateTime(2026, 10, 20)), isTrue);
+      final closed = active.copyWith(closedAt: DateTime(2026, 10, 20));
+      final restored = Loan.fromJson(closed.toJson());
+
+      expect(restored.isClosed, isTrue);
+      expect(restored.closedAt, DateTime(2026, 10, 20));
+      expect(restored.canClose(today: DateTime(2026, 10, 21)), isFalse);
+      expect(restored.settlementOutstanding(today: DateTime(2027, 1, 1)), 0);
+    });
+
+    test('older loan data remains active when closedAt is absent', () {
+      final active = Loan(
+        id: 'legacy-active-loan',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 5000,
+        rate: 0,
+        dueDay: 5,
+        startDate: DateTime(2026, 10, 1),
+        note: '',
+        payments: const [],
+      );
+      final oldData = Map<String, Object?>.from(active.toJson())
+        ..remove('closedAt');
+
+      expect(Loan.fromJson(oldData).isClosed, isFalse);
+    });
+
     test('keeps old records compatible and uses a separate interest date', () {
       final oldData = <String, Object?>{
         'id': 'old-loan',

@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "BLOCKED: gitleaks is required. Install it before pushing." >&2
+  echo "See SECURITY.md for verified installation and scan commands." >&2
+  exit 1
+fi
+
+echo "Security: reviewing staged paths before push..."
+risky_paths=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ei '(^|/)(\.env($|\.)|.*\.(pem|key|p8|p12|pfx|jks|keystore|db|sqlite3?|sql|dump|bak|backup)|key\.properties$|google-services\.json$|GoogleService-Info\.plist$|service-account.*\.json$)' || true)
+if [ -n "$risky_paths" ]; then
+  echo "BLOCKED: risky file types are staged:" >&2
+  printf '%s\n' "$risky_paths" >&2
+  echo "Unstage and inspect them before pushing." >&2
+  exit 1
+fi
+
+if ! git diff --cached --quiet --exit-code; then
+  echo "Security: uncommitted staged changes exist; scanning the staged patch..."
+  if ! git diff --cached --binary --no-ext-diff | gitleaks stdin --config .gitleaks.toml --redact --no-banner; then
+    echo "BLOCKED: a possible secret was detected in staged changes." >&2
+    exit 1
+  fi
+fi
+
+echo "Security: scanning all reachable Git history with Gitleaks..."
+if ! gitleaks git . --config .gitleaks.toml --redact --no-banner; then
+  echo "BLOCKED: a possible secret exists in reachable Git history." >&2
+  echo "Do not push. Rotate the credential first, then plan approved history cleanup." >&2
+  exit 1
+fi
+
+echo "Security: pre-push checks passed."
+

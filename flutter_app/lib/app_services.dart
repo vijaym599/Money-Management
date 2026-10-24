@@ -246,7 +246,7 @@ class LoanNotificationService {
       var notificationId = 1000;
       var scheduled = 0;
       for (final loan in loans.where(
-        (item) => item.outstanding > .009 && item.rate > 0,
+        (item) => !item.isClosed && item.outstanding > .009 && item.rate > 0,
       )) {
         var cursor = DateTime(now.year, now.month);
         for (var index = 0; index < 12 && scheduled < 400; index++) {
@@ -318,7 +318,7 @@ class PdfStatementService {
         loan.person.replaceAll(RegExp(r'[^\w\u0B80-\u0BFF]+'), '_');
     await Printing.sharePdf(
       bytes: await buildLoan(loan: loan, isTamil: isTamil),
-      filename: 'Money-MM-$safeName-statement.pdf',
+      filename: 'LoanTrack-$safeName-statement.pdf',
     );
   }
 

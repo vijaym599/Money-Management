@@ -1,4 +1,4 @@
-# கடன் கணக்கு — Flutter Android app
+# LoanTrack — Flutter Android app
 
 தமிழ் / English ஆதரவுள்ள, இணையம் இல்லாமலும் இயங்கும் தனிப்பட்ட கடன் மற்றும் மாத வட்டி கணக்கு Android app.
 

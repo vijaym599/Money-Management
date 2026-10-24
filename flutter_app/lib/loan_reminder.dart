@@ -185,13 +185,16 @@ class LoanShareMessageBuilder {
   ) {
     final principalPaid = payment.type == 'principal' ? payment.amount : 0.0;
     final interestPaid = payment.type == 'interest' ? payment.amount : 0.0;
+    final interestPeriod = payment.month == null
+        ? null
+        : '${_date(loan.interestPeriodStart(payment.month!))} – ${_date(loan.interestPeriodEnd(payment.month!))}';
     return <String>[
       isTamil
-          ? '*Money MM – பணம் பெற்ற ரசீது*'
-          : '*Money MM – Payment Receipt*',
+          ? '*LoanTrack – பணம் பெற்ற ரசீது*'
+          : '*LoanTrack – Payment Receipt*',
       '',
       '• ${isTamil ? 'நபர்' : 'Borrower'}: ${loan.person}',
-      '• ${isTamil ? 'ரசீது எண்' : 'Receipt reference'}: MM-${payment.id}',
+      '• ${isTamil ? 'ரசீது எண்' : 'Receipt reference'}: LT-${payment.id}',
       '• ${isTamil ? 'பணம் பெற்ற தேதி' : 'Payment date'}: ${_date(payment.date)}',
       '• ${isTamil ? 'பெற்ற தொகை' : 'Amount received'}: *${_money(payment.amount)}*',
       '• ${isTamil ? 'முதல்தொகைக்கு செலுத்தியது' : 'Principal paid'}: ${_money(principalPaid)}',
@@ -199,6 +202,8 @@ class LoanShareMessageBuilder {
         '• ${isTamil ? 'வட்டிக்கு செலுத்தியது' : 'Interest paid'}: ${_money(interestPaid)}',
       if (payment.month != null)
         '• ${isTamil ? 'வட்டி மாதம்' : 'Interest month'}: ${_monthLabelFromKey(payment.month!, isTamil)}',
+      if (interestPeriod != null)
+        '• ${isTamil ? 'வட்டி காலம்' : 'Interest period'}: $interestPeriod',
       '• ${isTamil ? 'மீதமுள்ள தொகை' : 'Remaining balance'}: *${_money(_shareTotal(loan, now))}*',
       '',
       isTamil
