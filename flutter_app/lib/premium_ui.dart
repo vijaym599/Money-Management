@@ -94,7 +94,7 @@ class PremiumSplash extends StatelessWidget {
       );
 }
 
-class PremiumAppShell extends StatelessWidget {
+class PremiumAppShell extends StatefulWidget {
   const PremiumAppShell({
     required this.loans,
     required this.isTamil,
@@ -150,10 +150,89 @@ class PremiumAppShell extends StatelessWidget {
   final ValueChanged<bool> onNotificationsChanged;
   final VoidCallback onBackup;
 
-  String _tr(String ta, String en) => isTamil ? ta : en;
+  @override
+  State<PremiumAppShell> createState() => _PremiumAppShellState();
+}
+
+class _PremiumAppShellState extends State<PremiumAppShell> {
+  late final PageController _pageController;
+  late int _currentPage;
+  int? _navigationTarget;
+
+  String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPage = widget.selectedPage;
+    _pageController = PageController(initialPage: _currentPage);
+  }
+
+  @override
+  void didUpdateWidget(covariant PremiumAppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final requestedPage = widget.selectedPage;
+    if (requestedPage != _currentPage && requestedPage != _navigationTarget) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _animateToPage(requestedPage, notifyParent: false);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _animateToPage(
+    int page, {
+    bool notifyParent = true,
+  }) async {
+    if (page == _navigationTarget || page == _currentPage) return;
+    _navigationTarget = page;
+    if (notifyParent) widget.onPageChanged(page);
+    final distance = (page - _currentPage).abs();
+    await _pageController.animateToPage(
+      page,
+      duration: Duration(milliseconds: 280 + math.min(distance, 2) * 45),
+      curve: Curves.easeOutCubic,
+    );
+    if (mounted && _navigationTarget == page) _navigationTarget = null;
+  }
+
+  void _handlePageChanged(int page) {
+    if (_currentPage == page) return;
+    setState(() => _currentPage = page);
+    widget.onPageChanged(page);
+    if (_navigationTarget == page) _navigationTarget = null;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final loans = widget.loans;
+    final isTamil = widget.isTamil;
+    final darkMode = widget.darkMode;
+    final profileName = widget.profileName;
+    final profilePhone = widget.profilePhone;
+    final loadError = widget.loadError;
+    final onAddLoan = widget.onAddLoan;
+    final onEditLoan = widget.onEditLoan;
+    final onPayment = widget.onPayment;
+    final onEditPhone = widget.onEditPhone;
+    final onSharePdf = widget.onSharePdf;
+    final onDelete = widget.onDelete;
+    final onDetails = widget.onDetails;
+    final onLanguageChanged = widget.onLanguageChanged;
+    final onThemeChanged = widget.onThemeChanged;
+    final onProfileSaved = widget.onProfileSaved;
+    final appLockEnabled = widget.appLockEnabled;
+    final biometricEnabled = widget.biometricEnabled;
+    final biometricAvailable = widget.biometricAvailable;
+    final notificationsEnabled = widget.notificationsEnabled;
+    final onConfigureSecurity = widget.onConfigureSecurity;
+    final onNotificationsChanged = widget.onNotificationsChanged;
+    final onBackup = widget.onBackup;
     final pages = <Widget>[
       _DashboardPage(
         loans: loans,
@@ -166,8 +245,8 @@ class PremiumAppShell extends StatelessWidget {
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
         onDetails: onDetails,
-        onOpenLoans: () => onPageChanged(1),
-        onOpenPeople: () => onPageChanged(2),
+        onOpenLoans: () => _animateToPage(1),
+        onOpenPeople: () => _animateToPage(2),
         onBackup: onBackup,
       ),
       _LoansPage(
@@ -219,35 +298,25 @@ class PremiumAppShell extends StatelessWidget {
               children: [
                 if (useRail)
                   _PremiumRail(
-                    selectedIndex: selectedPage,
+                    selectedIndex: _currentPage,
                     isTamil: isTamil,
-                    onChanged: onPageChanged,
+                    onChanged: _animateToPage,
                   ),
                 Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 280),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(.025, 0),
-                          end: Offset.zero,
-                        ).animate(animation),
-                        child: child,
-                      ),
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: _handlePageChanged,
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
                     ),
-                    child: KeyedSubtree(
-                      key: ValueKey(selectedPage),
-                      child: pages[selectedPage.clamp(0, pages.length - 1)],
-                    ),
+                    allowImplicitScrolling: true,
+                    children: pages,
                   ),
                 ),
               ],
             ),
           ),
-          floatingActionButton: selectedPage == 0 || selectedPage == 1
+          floatingActionButton: _currentPage == 0 || _currentPage == 1
               ? FloatingActionButton.extended(
                   onPressed: onAddLoan,
                   icon: const Icon(Icons.add_rounded),
@@ -257,9 +326,9 @@ class PremiumAppShell extends StatelessWidget {
           bottomNavigationBar: useRail
               ? null
               : _PremiumNavigationBar(
-                  selectedIndex: selectedPage,
+                  selectedIndex: _currentPage,
                   isTamil: isTamil,
-                  onChanged: onPageChanged,
+                  onChanged: _animateToPage,
                 ),
         );
       },
@@ -319,6 +388,7 @@ class _DashboardPage extends StatelessWidget {
     final entries = _paymentEntries(loans).take(4).toList();
 
     return _PageScroll(
+      storageId: 'dashboard',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -479,14 +549,19 @@ class _LoansPage extends StatefulWidget {
   State<_LoansPage> createState() => _LoansPageState();
 }
 
-class _LoansPageState extends State<_LoansPage> {
+class _LoansPageState extends State<_LoansPage>
+    with AutomaticKeepAliveClientMixin<_LoansPage> {
   String _query = '';
   String _filter = 'all';
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final shown = widget.loans.where((loan) {
       final directionMatches = switch (_filter) {
         'given' => loan.direction == 'given' && loan.rate > 0,
@@ -500,6 +575,7 @@ class _LoansPageState extends State<_LoansPage> {
     }).toList();
 
     return _PageScroll(
+      storageId: 'loans',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -623,6 +699,7 @@ class _PeoplePage extends StatelessWidget {
       ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
     return _PageScroll(
+      storageId: 'people',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -715,6 +792,7 @@ class _ReportsPage extends StatelessWidget {
     final monthly = _monthlyInterest(loans);
 
     return _PageScroll(
+      storageId: 'reports',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1031,11 +1109,15 @@ class _ProfilePage extends StatefulWidget {
   State<_ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<_ProfilePage> {
+class _ProfilePageState extends State<_ProfilePage>
+    with AutomaticKeepAliveClientMixin<_ProfilePage> {
   late final TextEditingController _name;
   late final TextEditingController _phone;
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -1063,166 +1145,170 @@ class _ProfilePageState extends State<_ProfilePage> {
   }
 
   @override
-  Widget build(BuildContext context) => _PageScroll(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _TopHeader(
-              title: _tr('சுயவிவரம்', 'Profile'),
-              subtitle:
-                  _tr('கணக்கு மற்றும் விருப்பங்கள்', 'Account and preferences'),
+  Widget build(BuildContext context) {
+    super.build(context);
+    return _PageScroll(
+      storageId: 'profile',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TopHeader(
+            title: _tr('சுயவிவரம்', 'Profile'),
+            subtitle:
+                _tr('கணக்கு மற்றும் விருப்பங்கள்', 'Account and preferences'),
+          ),
+          const SizedBox(height: 22),
+          _ProfileHero(
+            name: widget.profileName,
+            phone: widget.profilePhone,
+            loanCount: widget.loans.length,
+            isTamil: widget.isTamil,
+          ),
+          const SizedBox(height: 18),
+          _SettingsSection(
+            title: _tr('தனிப்பட்ட விவரங்கள்', 'Personal details'),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    labelText: _tr('உங்கள் பெயர்', 'Your name'),
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: _tr('தொலைபேசி எண்', 'Phone number'),
+                    prefixIcon: const Icon(Icons.phone_outlined),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () =>
+                        widget.onProfileSaved(_name.text, _phone.text),
+                    icon: const Icon(Icons.check_rounded),
+                    label: Text(_tr('சுயவிவரத்தைச் சேமி', 'Save profile')),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 22),
-            _ProfileHero(
-              name: widget.profileName,
-              phone: widget.profilePhone,
-              loanCount: widget.loans.length,
-              isTamil: widget.isTamil,
+          ),
+          const SizedBox(height: 16),
+          _SettingsSection(
+            title: _tr('விருப்பங்கள்', 'Preferences'),
+            child: Column(
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  secondary:
+                      const _SettingsIcon(icon: Icons.dark_mode_outlined),
+                  title: Text(_tr('இருண்ட தோற்றம்', 'Dark theme')),
+                  subtitle: Text(_tr('இரவு நேரத்தில் கண்களுக்கு எளிது',
+                      'Comfortable viewing at night')),
+                  value: widget.darkMode,
+                  onChanged: widget.onThemeChanged,
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const _SettingsIcon(icon: Icons.language_rounded),
+                  title: Text(_tr('மொழி', 'Language')),
+                  subtitle: Text(widget.isTamil ? 'தமிழ்' : 'English'),
+                  trailing: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: widget.isTamil ? 'ta' : 'en',
+                      items: const [
+                        DropdownMenuItem(value: 'ta', child: Text('தமிழ்')),
+                        DropdownMenuItem(value: 'en', child: Text('English')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) widget.onLanguageChanged(value);
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
-            _SettingsSection(
-              title: _tr('தனிப்பட்ட விவரங்கள்', 'Personal details'),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _name,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: _tr('உங்கள் பெயர்', 'Your name'),
-                      prefixIcon: const Icon(Icons.person_outline_rounded),
-                    ),
+          ),
+          const SizedBox(height: 16),
+          _SettingsSection(
+            title: _tr('தரவு மற்றும் பாதுகாப்பு', 'Data and security'),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading:
+                      const _SettingsIcon(icon: Icons.lock_outline_rounded),
+                  title: Text(_tr(
+                      'PIN & Biometric app lock', 'PIN & biometric app lock')),
+                  subtitle: Text(widget.appLockEnabled
+                      ? (widget.biometricEnabled
+                          ? _tr(
+                              'PIN மற்றும் biometric பாதுகாப்பு இயக்கப்பட்டுள்ளது',
+                              'PIN and biometric protection are enabled')
+                          : _tr('PIN பாதுகாப்பு இயக்கப்பட்டுள்ளது',
+                              'PIN protection is enabled'))
+                      : widget.biometricAvailable
+                          ? _tr('App lock அமைக்கப்படவில்லை • Biometric தயார்',
+                              'App lock is not configured • Biometrics ready')
+                          : _tr(
+                              'App lock அமைக்கப்படவில்லை • PIN பயன்படுத்தலாம்',
+                              'App lock is not configured • PIN is available')),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: widget.onConfigureSecurity,
+                ),
+                const Divider(),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const _SettingsIcon(
+                    icon: Icons.notifications_active_outlined,
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _phone,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: _tr('தொலைபேசி எண்', 'Phone number'),
-                      prefixIcon: const Icon(Icons.phone_outlined),
-                    ),
+                  title: Text(_tr('தவணை reminders', 'Payment reminders')),
+                  subtitle: Text(_tr(
+                    'Due date-க்கு ஒரு நாள் முன்பும் அன்றும் அறிவிப்பு',
+                    'Notify one day before and on the due date',
+                  )),
+                  value: widget.notificationsEnabled,
+                  onChanged: widget.onNotificationsChanged,
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const _SettingsIcon(icon: Icons.backup_outlined),
+                  title:
+                      Text(_tr('காப்புப் பிரதி / மீட்டமை', 'Backup / restore')),
+                  subtitle: Text(_tr('JSON காப்புப் பிரதியை நிர்வகிக்கவும்',
+                      'Manage your JSON backup')),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: widget.onBackup,
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const _SettingsIcon(
+                    icon: Icons.phonelink_lock_outlined,
                   ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () =>
-                          widget.onProfileSaved(_name.text, _phone.text),
-                      icon: const Icon(Icons.check_rounded),
-                      label: Text(_tr('சுயவிவரத்தைச் சேமி', 'Save profile')),
-                    ),
-                  ),
-                ],
-              ),
+                  title: Text(_tr('Encrypted on-device storage',
+                      'Encrypted on-device storage')),
+                  subtitle: Text(_tr(
+                    'கடன் தரவு Android Keystore மூலம் encrypt செய்யப்படுகிறது.',
+                    'Loan data is encrypted using Android Keystore.',
+                  )),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            _SettingsSection(
-              title: _tr('விருப்பங்கள்', 'Preferences'),
-              child: Column(
-                children: [
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    secondary:
-                        const _SettingsIcon(icon: Icons.dark_mode_outlined),
-                    title: Text(_tr('இருண்ட தோற்றம்', 'Dark theme')),
-                    subtitle: Text(_tr('இரவு நேரத்தில் கண்களுக்கு எளிது',
-                        'Comfortable viewing at night')),
-                    value: widget.darkMode,
-                    onChanged: widget.onThemeChanged,
-                  ),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingsIcon(icon: Icons.language_rounded),
-                    title: Text(_tr('மொழி', 'Language')),
-                    subtitle: Text(widget.isTamil ? 'தமிழ்' : 'English'),
-                    trailing: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: widget.isTamil ? 'ta' : 'en',
-                        items: const [
-                          DropdownMenuItem(value: 'ta', child: Text('தமிழ்')),
-                          DropdownMenuItem(value: 'en', child: Text('English')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) widget.onLanguageChanged(value);
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            _SettingsSection(
-              title: _tr('தரவு மற்றும் பாதுகாப்பு', 'Data and security'),
-              child: Column(
-                children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading:
-                        const _SettingsIcon(icon: Icons.lock_outline_rounded),
-                    title: Text(_tr('PIN & Biometric app lock',
-                        'PIN & biometric app lock')),
-                    subtitle: Text(widget.appLockEnabled
-                        ? (widget.biometricEnabled
-                            ? _tr(
-                                'PIN மற்றும் biometric பாதுகாப்பு இயக்கப்பட்டுள்ளது',
-                                'PIN and biometric protection are enabled')
-                            : _tr('PIN பாதுகாப்பு இயக்கப்பட்டுள்ளது',
-                                'PIN protection is enabled'))
-                        : widget.biometricAvailable
-                            ? _tr('App lock அமைக்கப்படவில்லை • Biometric தயார்',
-                                'App lock is not configured • Biometrics ready')
-                            : _tr(
-                                'App lock அமைக்கப்படவில்லை • PIN பயன்படுத்தலாம்',
-                                'App lock is not configured • PIN is available')),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: widget.onConfigureSecurity,
-                  ),
-                  const Divider(),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const _SettingsIcon(
-                      icon: Icons.notifications_active_outlined,
-                    ),
-                    title: Text(_tr('தவணை reminders', 'Payment reminders')),
-                    subtitle: Text(_tr(
-                      'Due date-க்கு ஒரு நாள் முன்பும் அன்றும் அறிவிப்பு',
-                      'Notify one day before and on the due date',
-                    )),
-                    value: widget.notificationsEnabled,
-                    onChanged: widget.onNotificationsChanged,
-                  ),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingsIcon(icon: Icons.backup_outlined),
-                    title: Text(
-                        _tr('காப்புப் பிரதி / மீட்டமை', 'Backup / restore')),
-                    subtitle: Text(_tr('JSON காப்புப் பிரதியை நிர்வகிக்கவும்',
-                        'Manage your JSON backup')),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: widget.onBackup,
-                  ),
-                  const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingsIcon(
-                      icon: Icons.phonelink_lock_outlined,
-                    ),
-                    title: Text(_tr('Encrypted on-device storage',
-                        'Encrypted on-device storage')),
-                    subtitle: Text(_tr(
-                      'கடன் தரவு Android Keystore மூலம் encrypt செய்யப்படுகிறது.',
-                      'Loan data is encrypted using Android Keystore.',
-                    )),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 100),
-          ],
-        ),
-      );
+          ),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
+  }
 }
 
 class _PremiumNavigationBar extends StatelessWidget {
@@ -1322,8 +1408,9 @@ class _PremiumRail extends StatelessWidget {
 }
 
 class _PageScroll extends StatelessWidget {
-  const _PageScroll({required this.child});
+  const _PageScroll({required this.storageId, required this.child});
 
+  final String storageId;
   final Widget child;
 
   @override
@@ -1331,6 +1418,7 @@ class _PageScroll extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1120),
           child: ListView(
+            key: PageStorageKey<String>('premium-page-$storageId'),
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
             children: [child],
           ),

@@ -27,6 +27,33 @@ const _nameKey = 'kadan-kanakku-profile-name';
 const _phoneKey = 'kadan-kanakku-profile-phone';
 const _notificationsKey = 'kadan-kanakku-notifications';
 
+class _SmoothPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _SmoothPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final curvedAnimation = animation.drive(
+      CurveTween(curve: Curves.easeOutCubic),
+    );
+    return FadeTransition(
+      opacity: curvedAnimation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(.045, 0),
+          end: Offset.zero,
+        ).animate(curvedAnimation),
+        child: child,
+      ),
+    );
+  }
+}
+
 class KadanKanakkuApp extends StatefulWidget {
   const KadanKanakkuApp({super.key});
 
@@ -746,6 +773,8 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       debugShowCheckedModeBanner: false,
       title: 'கடன் கணக்கு',
       locale: locale,
+      themeAnimationDuration: const Duration(milliseconds: 300),
+      themeAnimationCurve: Curves.easeOutCubic,
       supportedLocales: const [Locale('ta'), Locale('en')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -754,6 +783,14 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       ],
       theme: ThemeData(
         useMaterial3: true,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: _SmoothPageTransitionsBuilder(),
+            TargetPlatform.fuchsia: _SmoothPageTransitionsBuilder(),
+            TargetPlatform.linux: _SmoothPageTransitionsBuilder(),
+            TargetPlatform.windows: _SmoothPageTransitionsBuilder(),
+          },
+        ),
         colorScheme: colors,
         scaffoldBackgroundColor:
             _darkMode ? const Color(0xff081321) : const Color(0xfff5f7fb),
