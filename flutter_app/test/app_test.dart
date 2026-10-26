@@ -62,6 +62,43 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('adds and securely stores a savings record', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Savings'));
+    await tester.pumpAndSettle();
+    expect(find.text('No savings records yet'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Add savings'));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'Emergency fund bank');
+    await tester.enterText(fields.at(1), '25000');
+    await tester.enterText(fields.at(2), '100000');
+    final saveButton = find.widgetWithText(FilledButton, 'Add savings');
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Emergency fund bank'), findsOneWidget);
+    expect(find.text('₹25,000'), findsWidgets);
+    expect(find.textContaining('25%'), findsWidgets);
+    final stored = jsonDecode(
+      secureData[SecureDataStore.savingsKey]!,
+    ) as List<dynamic>;
+    final entry = SavingsEntry.fromJson(
+      Map<String, Object?>.from(stored.single as Map),
+    );
+    expect(entry.amount, 25000);
+    expect(entry.targetAmount, 100000);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('adds a loan and saves an interest payment locally',
       (tester) async {
     SharedPreferences.setMockInitialValues({

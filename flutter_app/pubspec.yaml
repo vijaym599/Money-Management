@@ -39,4 +39,3 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/NotoSansTamil.ttf
-    - assets/fonts/OFL-NotoSansTamil.txt

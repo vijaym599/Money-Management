@@ -23,6 +23,7 @@ class SecureDataStore {
   static final instance = SecureDataStore._();
 
   static const loansKey = 'kadan-kanakku-loans-v1';
+  static const savingsKey = 'kadan-kanakku-savings-v1';
   static const _pinSaltKey = 'app-lock-pin-salt-v1';
   static const _pinHashKey = 'app-lock-pin-hash-v1';
   static const _biometricKey = 'app-lock-biometric-v1';
@@ -65,6 +66,42 @@ class SecureDataStore {
     } catch (error) {
       debugPrint('Secure storage write unavailable: $error');
       return preferences.setString(loansKey, value);
+    }
+  }
+
+  Future<String?> readSavings(SharedPreferences preferences) async {
+    try {
+      final encrypted =
+          await _storage.read(key: savingsKey).timeout(_platformTimeout);
+      if (encrypted != null) return encrypted;
+
+      final legacy = preferences.getString(savingsKey);
+      if (legacy != null) {
+        await _storage
+            .write(key: savingsKey, value: legacy)
+            .timeout(_platformTimeout);
+        await preferences.remove(savingsKey);
+      }
+      return legacy;
+    } catch (error) {
+      debugPrint('Secure savings read unavailable: $error');
+      return preferences.getString(savingsKey);
+    }
+  }
+
+  Future<bool> writeSavings(
+    SharedPreferences preferences,
+    String value,
+  ) async {
+    try {
+      await _storage
+          .write(key: savingsKey, value: value)
+          .timeout(_platformTimeout);
+      await preferences.remove(savingsKey);
+      return true;
+    } catch (error) {
+      debugPrint('Secure savings write unavailable: $error');
+      return preferences.setString(savingsKey, value);
     }
   }
 

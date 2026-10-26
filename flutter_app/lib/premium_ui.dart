@@ -9,6 +9,8 @@ import 'amount_privacy.dart';
 import 'loan_reminder.dart';
 import 'models.dart';
 
+part 'savings_page.dart';
+
 const _brandBlue = Color(0xFF1769FF);
 const _brandNavy = Color(0xFF081B3A);
 const _softBlue = Color(0xFFEAF1FF);
@@ -96,6 +98,7 @@ class PremiumSplash extends StatelessWidget {
 class PremiumAppShell extends StatefulWidget {
   const PremiumAppShell({
     required this.loans,
+    required this.savings,
     required this.isTamil,
     required this.darkMode,
     required this.profileName,
@@ -110,6 +113,9 @@ class PremiumAppShell extends StatefulWidget {
     required this.onSharePdf,
     required this.onClose,
     required this.onDelete,
+    required this.onAddSavings,
+    required this.onEditSavings,
+    required this.onDeleteSavings,
     required this.onDetails,
     required this.onLanguageChanged,
     required this.onThemeChanged,
@@ -125,6 +131,7 @@ class PremiumAppShell extends StatefulWidget {
   });
 
   final List<Loan> loans;
+  final List<SavingsEntry> savings;
   final bool isTamil;
   final bool darkMode;
   final String profileName;
@@ -139,6 +146,9 @@ class PremiumAppShell extends StatefulWidget {
   final ValueChanged<Loan> onSharePdf;
   final ValueChanged<Loan> onClose;
   final ValueChanged<Loan> onDelete;
+  final VoidCallback onAddSavings;
+  final ValueChanged<SavingsEntry> onEditSavings;
+  final ValueChanged<SavingsEntry> onDeleteSavings;
   final void Function(BuildContext context, Loan loan) onDetails;
   final ValueChanged<String> onLanguageChanged;
   final ValueChanged<bool> onThemeChanged;
@@ -212,6 +222,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
   @override
   Widget build(BuildContext context) {
     final loans = widget.loans;
+    final savings = widget.savings;
     final activeLoans = loans.where((loan) => !loan.isClosed).toList();
     final isTamil = widget.isTamil;
     final darkMode = widget.darkMode;
@@ -225,6 +236,9 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final onSharePdf = widget.onSharePdf;
     final onClose = widget.onClose;
     final onDelete = widget.onDelete;
+    final onAddSavings = widget.onAddSavings;
+    final onEditSavings = widget.onEditSavings;
+    final onDeleteSavings = widget.onDeleteSavings;
     final onDetails = widget.onDetails;
     final onLanguageChanged = widget.onLanguageChanged;
     final onThemeChanged = widget.onThemeChanged;
@@ -239,6 +253,8 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final pages = <Widget>[
       _DashboardPage(
         loans: activeLoans,
+        savingsTotal:
+            savings.fold<double>(0, (sum, entry) => sum + entry.amount),
         isTamil: isTamil,
         profileName: profileName,
         loadError: loadError,
@@ -272,6 +288,13 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
         onDetails: onDetails,
+      ),
+      _SavingsPage(
+        savings: savings,
+        isTamil: isTamil,
+        onAdd: onAddSavings,
+        onEdit: onEditSavings,
+        onDelete: onDeleteSavings,
       ),
       _ReportsPage(loans: loans, isTamil: isTamil),
       _ProfilePage(
@@ -320,13 +343,16 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
               ],
             ),
           ),
-          floatingActionButton: _currentPage == 0 || _currentPage == 1
-              ? FloatingActionButton.extended(
-                  onPressed: onAddLoan,
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(_tr('புதிய கடன்', 'New loan')),
-                )
-              : null,
+          floatingActionButton:
+              _currentPage == 0 || _currentPage == 1 || _currentPage == 3
+                  ? FloatingActionButton.extended(
+                      onPressed: _currentPage == 3 ? onAddSavings : onAddLoan,
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(_currentPage == 3
+                          ? _tr('சேமிப்பைச் சேர்', 'Add savings')
+                          : _tr('புதிய கடன்', 'New loan')),
+                    )
+                  : null,
           bottomNavigationBar: useRail
               ? null
               : _PremiumNavigationBar(
@@ -343,6 +369,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
 class _DashboardPage extends StatelessWidget {
   const _DashboardPage({
     required this.loans,
+    required this.savingsTotal,
     required this.isTamil,
     required this.profileName,
     required this.loadError,
@@ -358,6 +385,7 @@ class _DashboardPage extends StatelessWidget {
   });
 
   final List<Loan> loans;
+  final double savingsTotal;
   final bool isTamil;
   final String profileName;
   final String? loadError;
@@ -439,6 +467,12 @@ class _DashboardPage extends StatelessWidget {
                 value: _money(context, overdue),
                 icon: Icons.schedule_rounded,
                 color: overdue > 0 ? const Color(0xFFEF5350) : _success,
+              ),
+              _MetricCard(
+                label: _tr('மொத்த சேமிப்பு', 'Total savings'),
+                value: _money(context, savingsTotal),
+                icon: Icons.savings_rounded,
+                color: _success,
               ),
             ],
           ),
@@ -1418,6 +1452,8 @@ class _PremiumNavigationBar extends StatelessWidget {
               isTamil ? 'கடன்கள்' : 'Loans'),
           _destination(Icons.people_outline_rounded, Icons.people_rounded,
               isTamil ? 'நபர்கள்' : 'People'),
+          _destination(Icons.savings_outlined, Icons.savings_rounded,
+              isTamil ? 'சேமிப்பு' : 'Savings'),
           _destination(Icons.bar_chart_outlined, Icons.bar_chart_rounded,
               isTamil ? 'அறிக்கை' : 'Reports'),
           _destination(Icons.person_outline_rounded, Icons.person_rounded,
@@ -1480,6 +1516,7 @@ class _PremiumRail extends StatelessWidget {
             _rail(Icons.account_balance_wallet_rounded,
                 isTamil ? 'கடன்கள்' : 'Loans'),
             _rail(Icons.people_rounded, isTamil ? 'நபர்கள்' : 'People'),
+            _rail(Icons.savings_rounded, isTamil ? 'சேமிப்பு' : 'Savings'),
             _rail(Icons.bar_chart_rounded, isTamil ? 'அறிக்கை' : 'Reports'),
             _rail(Icons.person_rounded, isTamil ? 'சுயவிவரம்' : 'Profile'),
           ],

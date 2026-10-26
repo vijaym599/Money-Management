@@ -50,6 +50,19 @@ void main() {
     expect(preferences.getString(SecureDataStore.loansKey), isNull);
   });
 
+  test('savings JSON migrates to encrypted storage', () async {
+    SharedPreferences.setMockInitialValues({
+      SecureDataStore.savingsKey: '[{"id":"saving"}]',
+    });
+    final preferences = await SharedPreferences.getInstance();
+
+    final value = await SecureDataStore.instance.readSavings(preferences);
+
+    expect(value, '[{"id":"saving"}]');
+    expect(secureData[SecureDataStore.savingsKey], value);
+    expect(preferences.getString(SecureDataStore.savingsKey), isNull);
+  });
+
   test('Tamil and English loan statement generates a valid PDF', () async {
     final loan = Loan(
       id: 'pdf-loan',

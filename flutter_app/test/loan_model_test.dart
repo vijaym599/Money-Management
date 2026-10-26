@@ -2,6 +2,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kadan_kanakku/main.dart';
 
 void main() {
+  test('savings entry serializes and calculates capped goal progress', () {
+    final entry = SavingsEntry(
+      id: 'saving-1',
+      name: 'Emergency fund',
+      type: 'bank',
+      amount: 120000,
+      targetAmount: 100000,
+      updatedAt: DateTime(2026, 10, 26),
+      note: 'Do not touch',
+    );
+
+    final restored = SavingsEntry.fromJson(entry.toJson());
+
+    expect(restored.name, 'Emergency fund');
+    expect(restored.amount, 120000);
+    expect(restored.targetAmount, 100000);
+    expect(restored.progress, 1);
+  });
+
   group('Loan interest ledger', () {
     test('calculates month interest and unpaid balance', () {
       final loan = Loan(

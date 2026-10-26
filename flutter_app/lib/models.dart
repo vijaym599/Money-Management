@@ -1,5 +1,84 @@
 import 'dart:math' as math;
 
+const savingsEntryTypes = <String>{
+  'bank',
+  'cash',
+  'fixed_deposit',
+  'recurring_deposit',
+  'digital_wallet',
+  'other',
+};
+
+class SavingsEntry {
+  const SavingsEntry({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.amount,
+    required this.updatedAt,
+    this.targetAmount,
+    this.note = '',
+  });
+
+  final String id;
+  final String name;
+  final String type;
+  final double amount;
+  final double? targetAmount;
+  final DateTime updatedAt;
+  final String note;
+
+  double get progress => targetAmount == null || targetAmount! <= 0
+      ? 0
+      : (amount / targetAmount!).clamp(0, 1);
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'name': name,
+        'type': type,
+        'amount': amount,
+        'targetAmount': targetAmount,
+        'updatedAt': _dateKey(updatedAt),
+        'note': note,
+      };
+
+  factory SavingsEntry.fromJson(Map<String, Object?> json) {
+    final id = json['id'];
+    final name = json['name'];
+    final type = json['type'];
+    final amount = json['amount'];
+    final targetAmount = json['targetAmount'];
+    final updatedAt = json['updatedAt'];
+    final note = json['note'] ?? '';
+    if (id is! String ||
+        id.trim().isEmpty ||
+        name is! String ||
+        name.trim().isEmpty ||
+        type is! String ||
+        !savingsEntryTypes.contains(type) ||
+        amount is! num ||
+        !amount.isFinite ||
+        amount < 0 ||
+        (targetAmount != null &&
+            (targetAmount is! num ||
+                !targetAmount.isFinite ||
+                targetAmount <= 0)) ||
+        updatedAt is! String ||
+        note is! String) {
+      throw const FormatException('Invalid savings record.');
+    }
+    return SavingsEntry(
+      id: id,
+      name: name.trim(),
+      type: type,
+      amount: amount.toDouble(),
+      targetAmount: (targetAmount as num?)?.toDouble(),
+      updatedAt: _parseDate(updatedAt),
+      note: note.trim(),
+    );
+  }
+}
+
 class LoanPayment {
   const LoanPayment({
     required this.id,

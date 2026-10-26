@@ -1,12 +1,12 @@
 # LoanTrack — Flutter Android app
 
-தமிழ் / English ஆதரவுள்ள, இணையம் இல்லாமலும் இயங்கும் தனிப்பட்ட கடன் மற்றும் மாத வட்டி கணக்கு Android app.
+தமிழ் / English ஆதரவுள்ள, இணையம் இல்லாமலும் இயங்கும் தனிப்பட்ட கடன், மாத வட்டி மற்றும் சேமிப்பு கணக்கு Android app.
 
 App source: [`flutter_app/`](./flutter_app/)
 
 ## Offline மற்றும் privacy
 
-- Loan, interest, principal payment, profile, language, theme ஆகியவை சாதனத்தின் local preferences-ல் சேமிக்கப்படும்.
+- Loan, interest, principal payment, savings மற்றும் app-lock data secure local-storage flow-ல் சேமிக்கப்படும். Profile, language, theme preferences மட்டும் local preferences-ல் இருக்கும்.
 - App இயங்க internet permission அல்லது server தேவையில்லை.
 - Android cloud/device backup திட்டமிட்டு disable செய்யப்பட்டுள்ளது.
 - JSON backup clipboard-க்கு copy செய்யலாம். அதில் நிதித் தகவல் இருப்பதால் பாதுகாப்பாக வைத்துக்கொள்ளவும்.
@@ -21,6 +21,9 @@ App source: [`flutter_app/`](./flutter_app/)
 - பெயர் தேடல் மற்றும் வகை filter
 - Tamil / English, light / dark theme
 - JSON backup மற்றும் restore validation
+- சேமிப்பு இருக்கும் இடம், வகை, தொகை மற்றும் optional goal tracking
+- App முழுவதும் தொகைகளை மறைக்கும் privacy toggle
+- PIN / biometric app lock மற்றும் due-date notifications
 
 ## Run மற்றும் test
 
