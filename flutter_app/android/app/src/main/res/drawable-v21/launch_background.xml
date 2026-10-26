@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/launch_background" />
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="315"
+                android:centerColor="#123B8F"
+                android:endColor="#1769FF"
+                android:startColor="#081B3A"
+                android:type="linear" />
+        </shape>
+    </item>
 </layer-list>

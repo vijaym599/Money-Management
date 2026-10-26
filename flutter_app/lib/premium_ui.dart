@@ -13,6 +13,13 @@ const _brandNavy = Color(0xFF081B3A);
 const _softBlue = Color(0xFFEAF1FF);
 const _success = Color(0xFF16A085);
 const _warning = Color(0xFFF59E0B);
+const _supportName = String.fromEnvironment('SUPPORT_NAME');
+const _supportPhone = String.fromEnvironment('SUPPORT_PHONE');
+const _supportEmail = String.fromEnvironment('SUPPORT_EMAIL');
+const _appVersion = String.fromEnvironment(
+  'FLUTTER_BUILD_NAME',
+  defaultValue: '1.1.0',
+);
 
 class PremiumSplash extends StatelessWidget {
   const PremiumSplash({super.key});
@@ -1125,6 +1132,15 @@ class _ProfilePageState extends State<_ProfilePage>
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
 
+  Future<void> _openContact(Uri uri) async {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_tr('திறக்க முடியவில்லை.', 'Could not open.'))),
+      );
+    }
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -1310,6 +1326,63 @@ class _ProfilePageState extends State<_ProfilePage>
                     'Loan data is encrypted using Android Keystore.',
                   )),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _SettingsSection(
+            title: _tr('செயலி பற்றி', 'About the app'),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const _SettingsIcon(
+                    icon: Icons.account_balance_wallet_rounded,
+                  ),
+                  title: const Text('LoanTrack'),
+                  subtitle: Text(_tr(
+                    'தனிப்பட்ட கடன் மற்றும் வட்டி கண்காணிப்பு',
+                    'Private loan and interest tracker • Version $_appVersion',
+                  )),
+                ),
+                if (_supportPhone.isNotEmpty || _supportEmail.isNotEmpty) ...[
+                  const Divider(),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingsIcon(
+                      icon: Icons.design_services_outlined,
+                    ),
+                    title: Text(_tr(
+                      'செயலி அல்லது இணையதளம் வேண்டுமா?',
+                      'Need an app or website?',
+                    )),
+                    subtitle:
+                        _supportName.isEmpty ? null : const Text(_supportName),
+                  ),
+                  if (_supportPhone.isNotEmpty)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.phone_outlined),
+                      title: const Text(_supportPhone),
+                      subtitle: Text(_tr('அழைக்க தட்டவும்', 'Tap to call')),
+                      onTap: () => _openContact(Uri(
+                        scheme: 'tel',
+                        path: _supportPhone.replaceAll(' ', ''),
+                      )),
+                    ),
+                  if (_supportEmail.isNotEmpty)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.email_outlined),
+                      title: const Text(_supportEmail),
+                      subtitle: Text(_tr('மின்னஞ்சல் அனுப்ப தட்டவும்',
+                          'Tap to send an email')),
+                      onTap: () => _openContact(Uri(
+                        scheme: 'mailto',
+                        path: _supportEmail,
+                      )),
+                    ),
+                ],
               ],
             ),
           ),

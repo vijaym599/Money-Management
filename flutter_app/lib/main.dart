@@ -934,53 +934,71 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
           showDragHandle: true,
         ),
       ),
-      home: _loading
-          ? const PremiumSplash()
-          : _locked
-              ? AppLockScreen(
-                  isTamil: _isTamil,
-                  biometricEnabled: _biometricEnabled && _biometricAvailable,
-                  onPinSubmitted: _unlockWithPin,
-                  onBiometric: _unlockWithBiometrics,
-                )
-              : PremiumAppShell(
-                  loans: _loans,
-                  isTamil: _isTamil,
-                  darkMode: _darkMode,
-                  profileName: _profileName,
-                  profilePhone: _profilePhone,
-                  loadError: _loadError,
-                  selectedPage: _selectedPage,
-                  onPageChanged: (page) => setState(() => _selectedPage = page),
-                  onAddLoan: _addLoan,
-                  onEditLoan: _editLoan,
-                  onPayment: _addPayment,
-                  onEditPhone: _editLoanPhone,
-                  onSharePdf: _shareLoanPdf,
-                  onClose: _closeLoan,
-                  onDelete: _deleteLoan,
-                  onDetails: (context, loan) => showLoanDetailsPage(
-                    context,
-                    loan: loan,
-                    isTamil: _isTamil,
-                    onPayment: () => _addPayment(loan),
-                    onShare: () => showLoanShareSheet(
-                      context,
-                      loan: loan,
-                      appIsTamil: _isTamil,
+      home: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 420),
+        reverseDuration: const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: .985, end: 1).animate(animation),
+            child: child,
+          ),
+        ),
+        child: KeyedSubtree(
+          key: ValueKey(_loading ? 'loading' : (_locked ? 'locked' : 'home')),
+          child: _loading
+              ? const PremiumSplash()
+              : _locked
+                  ? AppLockScreen(
+                      isTamil: _isTamil,
+                      biometricEnabled:
+                          _biometricEnabled && _biometricAvailable,
+                      onPinSubmitted: _unlockWithPin,
+                      onBiometric: _unlockWithBiometrics,
+                    )
+                  : PremiumAppShell(
+                      loans: _loans,
+                      isTamil: _isTamil,
+                      darkMode: _darkMode,
+                      profileName: _profileName,
+                      profilePhone: _profilePhone,
+                      loadError: _loadError,
+                      selectedPage: _selectedPage,
+                      onPageChanged: (page) =>
+                          setState(() => _selectedPage = page),
+                      onAddLoan: _addLoan,
+                      onEditLoan: _editLoan,
+                      onPayment: _addPayment,
+                      onEditPhone: _editLoanPhone,
+                      onSharePdf: _shareLoanPdf,
+                      onClose: _closeLoan,
+                      onDelete: _deleteLoan,
+                      onDetails: (context, loan) => showLoanDetailsPage(
+                        context,
+                        loan: loan,
+                        isTamil: _isTamil,
+                        onPayment: () => _addPayment(loan),
+                        onShare: () => showLoanShareSheet(
+                          context,
+                          loan: loan,
+                          appIsTamil: _isTamil,
+                        ),
+                      ),
+                      onLanguageChanged: _changeLanguage,
+                      onThemeChanged: _changeTheme,
+                      onProfileSaved: _saveProfile,
+                      appLockEnabled: _appLockEnabled,
+                      biometricEnabled: _biometricEnabled,
+                      biometricAvailable: _biometricAvailable,
+                      notificationsEnabled: _notificationsEnabled,
+                      onConfigureSecurity: _configureSecurity,
+                      onNotificationsChanged: _changeNotifications,
+                      onBackup: _showBackup,
                     ),
-                  ),
-                  onLanguageChanged: _changeLanguage,
-                  onThemeChanged: _changeTheme,
-                  onProfileSaved: _saveProfile,
-                  appLockEnabled: _appLockEnabled,
-                  biometricEnabled: _biometricEnabled,
-                  biometricAvailable: _biometricAvailable,
-                  notificationsEnabled: _notificationsEnabled,
-                  onConfigureSecurity: _configureSecurity,
-                  onNotificationsChanged: _changeNotifications,
-                  onBackup: _showBackup,
-                ),
+        ),
+      ),
     );
   }
 }
