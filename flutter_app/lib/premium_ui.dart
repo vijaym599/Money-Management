@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'amount_privacy.dart';
 import 'loan_reminder.dart';
 import 'models.dart';
 
@@ -423,19 +424,19 @@ class _DashboardPage extends StatelessWidget {
             children: [
               _MetricCard(
                 label: _tr('கொடுத்த நிலுவை', 'Total lent'),
-                value: _money(lent),
+                value: _money(context, lent),
                 icon: Icons.call_made_rounded,
                 color: _brandBlue,
               ),
               _MetricCard(
                 label: _tr('வாங்கிய நிலுவை', 'Total borrowed'),
-                value: _money(borrowed),
+                value: _money(context, borrowed),
                 icon: Icons.call_received_rounded,
                 color: _warning,
               ),
               _MetricCard(
                 label: _tr('வட்டி நிலுவை', 'Interest overdue'),
-                value: _money(overdue),
+                value: _money(context, overdue),
                 icon: Icons.schedule_rounded,
                 color: overdue > 0 ? const Color(0xFFEF5350) : _success,
               ),
@@ -985,7 +986,7 @@ class _AdvancedAnalyticsCard extends StatelessWidget {
               ),
               _AnalyticsMetric(
                 label: _tr('மொத்த exposure', 'Total exposure'),
-                value: _money(principalOutstanding + interestOverdue),
+                value: _money(context, principalOutstanding + interestOverdue),
                 color: _warning,
               ),
             ],
@@ -1019,7 +1020,7 @@ class _AdvancedAnalyticsCard extends StatelessWidget {
                 ),
                 title: Text(topPeople[index].key),
                 trailing: Text(
-                  _money(topPeople[index].value),
+                  _money(context, topPeople[index].value),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -1079,7 +1080,7 @@ class _AgingRow extends StatelessWidget {
         child: Row(
           children: [
             Expanded(child: Text(label)),
-            Text(_money(value),
+            Text(_money(context, value),
                 style: const TextStyle(fontWeight: FontWeight.w700)),
           ],
         ),
@@ -1609,91 +1610,102 @@ class _BalanceHero extends StatelessWidget {
   String _tr(String ta, String en) => isTamil ? ta : en;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [_brandBlue, Color(0xFF0C3E9D), _brandNavy],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x401769FF),
-              blurRadius: 28,
-              offset: Offset(0, 14),
-            ),
-          ],
+  Widget build(BuildContext context) {
+    final amountsVisible = AmountPrivacyScope.isVisible(context);
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [_brandBlue, Color(0xFF0C3E9D), _brandNavy],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -35,
-              top: -55,
-              child: Container(
-                width: 150,
-                height: 150,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: .07),
-                ),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x401769FF),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -35,
+            top: -55,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: .07),
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _tr('நிகர நிலுவை', 'Net position'),
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: .75),
-                          fontWeight: FontWeight.w600,
-                        ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _tr('நிகர நிலுவை', 'Net position'),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .75),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    Icon(
-                      Icons.shield_outlined,
-                      color: Colors.white.withValues(alpha: .75),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 7),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _money(lent - borrowed),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -.8,
+                  ),
+                  IconButton(
+                    tooltip: amountsVisible
+                        ? _tr('தொகைகளை மறை', 'Hide amounts')
+                        : _tr('தொகைகளைக் காட்டு', 'Show amounts'),
+                    onPressed: () => AmountPrivacyScope.toggle(context),
+                    icon: Icon(
+                      amountsVisible
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      color: Colors.white.withValues(alpha: .9),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _money(context, lent - borrowed),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -.8,
+                  ),
                 ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 24,
-                  runSpacing: 14,
-                  children: [
-                    _HeroStat(
-                      label: _tr('பெற வேண்டியது', 'To receive'),
-                      value: _money(lent),
-                    ),
-                    _HeroStat(
-                      label: _tr('செலுத்த வேண்டியது', 'To pay'),
-                      value: _money(borrowed + overdue),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                spacing: 24,
+                runSpacing: 14,
+                children: [
+                  _HeroStat(
+                    label: _tr('பெற வேண்டியது', 'To receive'),
+                    value: _money(context, lent),
+                  ),
+                  _HeroStat(
+                    label: _tr('செலுத்த வேண்டியது', 'To pay'),
+                    value: _money(context, borrowed + overdue),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HeroStat extends StatelessWidget {
@@ -1972,13 +1984,13 @@ class _InterestFreeSummary extends StatelessWidget {
               Expanded(
                 child: _HeroStat(
                   label: isTamil ? 'மொத்தம் கொடுத்தது' : 'Total lent',
-                  value: _money(original),
+                  value: _money(context, original),
                 ),
               ),
               Expanded(
                 child: _HeroStat(
                   label: isTamil ? 'திரும்ப வரவேண்டியது' : 'Outstanding',
-                  value: _money(outstanding),
+                  value: _money(context, outstanding),
                 ),
               ),
             ],
@@ -2191,7 +2203,7 @@ class _PremiumLoanCard extends StatelessWidget {
                     label: interestFree
                         ? _tr('முதல்தொகை நிலுவை', 'Principal outstanding')
                         : _tr('முதல்தொகை நிலுவை', 'Outstanding'),
-                    value: _money(loan.outstanding),
+                    value: _money(context, loan.outstanding),
                   ),
                 ),
                 Container(
@@ -2207,7 +2219,7 @@ class _PremiumLoanCard extends StatelessWidget {
                         : _tr('மாத வட்டி', 'Monthly interest'),
                     value: interestFree
                         ? DateFormat('d MMM yyyy').format(loan.startDate)
-                        : _money(loan.monthlyInterest),
+                        : _money(context, loan.monthlyInterest),
                   ),
                 ),
               ],
@@ -2224,8 +2236,8 @@ class _PremiumLoanCard extends StatelessWidget {
                 ),
                 child: Text(
                   _tr(
-                    '${loan.overdueMonthCount(today: now)} மாதங்கள் • ${_money(overdue)} வட்டி நிலுவை',
-                    '${loan.overdueMonthCount(today: now)} months • ${_money(overdue)} interest overdue',
+                    '${loan.overdueMonthCount(today: now)} மாதங்கள் • ${_money(context, overdue)} வட்டி நிலுவை',
+                    '${loan.overdueMonthCount(today: now)} months • ${_money(context, overdue)} interest overdue',
                   ),
                   style: const TextStyle(
                     color: Color(0xFFDC3C3C),
@@ -2384,13 +2396,13 @@ class _PersonTile extends StatelessWidget {
         children: [
           if (lent > 0)
             Text(
-              '+${_money(lent)}',
+              '+${_money(context, lent)}',
               style:
                   const TextStyle(color: _success, fontWeight: FontWeight.w700),
             ),
           if (borrowed > 0)
             Text(
-              '-${_money(borrowed)}',
+              '-${_money(context, borrowed)}',
               style: const TextStyle(
                   color: Color(0xFFEF5350), fontWeight: FontWeight.w700),
             ),
@@ -2449,13 +2461,13 @@ class _AllocationCard extends StatelessWidget {
                       _LegendRow(
                         color: _brandBlue,
                         label: isTamil ? 'கொடுத்தது' : 'Lent',
-                        value: _money(lent),
+                        value: _money(context, lent),
                       ),
                       const SizedBox(height: 14),
                       _LegendRow(
                         color: _warning,
                         label: isTamil ? 'வாங்கியது' : 'Borrowed',
-                        value: _money(borrowed),
+                        value: _money(context, borrowed),
                       ),
                     ],
                   ),
@@ -2492,21 +2504,21 @@ class _InterestOverviewCard extends StatelessWidget {
             const SizedBox(height: 18),
             _ReportValue(
               label: isTamil ? 'பெற்ற வட்டி' : 'Interest earned',
-              value: _money(earned),
+              value: _money(context, earned),
               color: _success,
               icon: Icons.trending_up_rounded,
             ),
             const SizedBox(height: 14),
             _ReportValue(
               label: isTamil ? 'செலுத்திய வட்டி' : 'Interest paid',
-              value: _money(paid),
+              value: _money(context, paid),
               color: const Color(0xFFEF5350),
               icon: Icons.trending_down_rounded,
             ),
             const Divider(height: 26),
             _ReportValue(
               label: isTamil ? 'நிகர வட்டி' : 'Net interest',
-              value: _money(earned - paid),
+              value: _money(context, earned - paid),
               color: _brandBlue,
               icon: Icons.balance_rounded,
             ),
@@ -3181,7 +3193,7 @@ class _TransactionTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            _money(entry.payment.amount),
+            _money(context, entry.payment.amount),
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(width: 4),
@@ -3491,7 +3503,7 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
                           style: TextStyle(
                               color: Colors.white.withValues(alpha: .72))),
                       const SizedBox(height: 4),
-                      Text(_money(_interest!),
+                      Text(_money(context, _interest!),
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 25,
@@ -3508,7 +3520,7 @@ class _InterestCalculatorSheetState extends State<_InterestCalculatorSheet> {
                       ],
                       const SizedBox(height: 12),
                       Text(
-                          '${_tr('மொத்த தொகை', 'Total amount')}: ${_money(_total!)}',
+                          '${_tr('மொத்த தொகை', 'Total amount')}: ${_money(context, _total!)}',
                           style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w600)),
@@ -3634,7 +3646,7 @@ Future<void> _pickLoanForPayment(
                     ListTile(
                       leading: CircleAvatar(child: Text(_initial(item.person))),
                       title: Text(item.person),
-                      subtitle: Text(_money(item.outstanding)),
+                      subtitle: Text(_money(context, item.outstanding)),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => Navigator.pop(sheetContext, item),
                     ),
@@ -3714,7 +3726,8 @@ Future<void> _showNotifications(
                         subtitle: Text(isTamil
                             ? '${loan.overdueMonthCount(today: now)} மாதங்கள் நிலுவை'
                             : '${loan.overdueMonthCount(today: now)} months overdue'),
-                        trailing: Text(_money(loan.overdueInterest(today: now)),
+                        trailing: Text(
+                            _money(context, loan.overdueInterest(today: now)),
                             style:
                                 const TextStyle(fontWeight: FontWeight.w800)),
                       ),
@@ -3728,7 +3741,7 @@ Future<void> _showNotifications(
                         subtitle: Text(isTamil
                             ? 'விரைவில் செலுத்த வேண்டியது'
                             : 'Due soon'),
-                        trailing: Text(_money(loan.monthlyInterest),
+                        trailing: Text(_money(context, loan.monthlyInterest),
                             style:
                                 const TextStyle(fontWeight: FontWeight.w800)),
                       ),
@@ -4047,11 +4060,8 @@ Future<void> _shareToWhatsApp(
   }
 }
 
-String _money(double value) => NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: value % 1 == 0 ? 0 : 2,
-    ).format(value);
+String _money(BuildContext context, double value) =>
+    privateMoney(context, value);
 
 String _initial(String value) {
   final text = value.trim();

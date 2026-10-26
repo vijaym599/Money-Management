@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_services.dart';
+import 'amount_privacy.dart';
 import 'loan_detail_page.dart';
 import 'loan_reminder.dart';
 import 'models.dart';
@@ -65,6 +66,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final _amountVisibility = ValueNotifier<bool>(true);
   bool _loading = true;
   bool _darkMode = false;
   bool _notificationsEnabled = false;
@@ -96,6 +98,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _amountVisibility.dispose();
     super.dispose();
   }
 
@@ -251,11 +254,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   Future<bool?> _showLoanEditPreview(Loan oldLoan, Loan newLoan) {
     final now = DateTime.now();
     final date = DateFormat('d MMM yyyy');
-    final money = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
+    String money(double value) => privateMoney(_appContext, value);
     final rows = <(String, String, String)>[
       (
         _tr('கடன் வழங்கிய தேதி', 'Loan given date'),
@@ -289,13 +288,13 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       ),
       (
         _tr('வட்டி நிலுவை', 'Interest outstanding'),
-        money.format(oldLoan.interestOutstanding(today: now)),
-        money.format(newLoan.interestOutstanding(today: now)),
+        money(oldLoan.interestOutstanding(today: now)),
+        money(newLoan.interestOutstanding(today: now)),
       ),
       (
         _tr('மொத்த நிலுவை', 'Total outstanding'),
-        money.format(oldLoan.totalOutstanding(today: now)),
-        money.format(newLoan.totalOutstanding(today: now)),
+        money(oldLoan.totalOutstanding(today: now)),
+        money(newLoan.totalOutstanding(today: now)),
       ),
     ];
     return showDialog<bool>(
@@ -426,8 +425,8 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     if (!loan.canClose(today: today)) {
       final pending = loan.settlementOutstanding(today: today);
       _message(_tr(
-        'கடனை மூடுவதற்கு முன் முதல்தொகை மற்றும் சேர்ந்த வட்டி முழுவதையும் செலுத்தவும். நிலுவை: ${NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2).format(pending)}',
-        'Settle the principal and accrued interest before closing. Remaining: ${NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2).format(pending)}',
+        'கடனை மூடுவதற்கு முன் முதல்தொகை மற்றும் சேர்ந்த வட்டி முழுவதையும் செலுத்தவும். நிலுவை: ${privateMoney(_appContext, pending)}',
+        'Settle the principal and accrued interest before closing. Remaining: ${privateMoney(_appContext, pending)}',
       ));
       return;
     }
@@ -823,6 +822,10 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       surface: _darkMode ? const Color(0xff101a2b) : Colors.white,
     );
     return MaterialApp(
+      builder: (context, child) => AmountPrivacyScope(
+        notifier: _amountVisibility,
+        child: child!,
+      ),
       navigatorKey: _navigatorKey,
       scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
@@ -1357,11 +1360,7 @@ class _HomePageState extends State<_HomePage> {
 
   bool get _ta => widget.isTamil;
   String _tr(String tamil, String english) => _ta ? tamil : english;
-  String _money(double value) => NumberFormat.currency(
-        locale: 'en_IN',
-        symbol: '₹',
-        decimalDigits: value % 1 == 0 ? 0 : 2,
-      ).format(value);
+  String _money(double value) => privateMoney(context, value);
 
   @override
   Widget build(BuildContext context) {
@@ -1713,11 +1712,8 @@ class _LoanCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   String _tr(String ta, String en) => isTamil ? ta : en;
-  String _money(double value) => NumberFormat.currency(
-        locale: 'en_IN',
-        symbol: '₹',
-        decimalDigits: value % 1 == 0 ? 0 : 2,
-      ).format(value);
+  String _money(BuildContext context, double value) =>
+      privateMoney(context, value);
 
   @override
   Widget build(BuildContext context) {
@@ -1760,13 +1756,13 @@ class _LoanCard extends StatelessWidget {
                 Expanded(
                   child: _AmountColumn(
                     label: _tr('நிலுவை முதல்தொகை', 'Principal outstanding'),
-                    value: _money(loan.outstanding),
+                    value: _money(context, loan.outstanding),
                   ),
                 ),
                 Expanded(
                   child: _AmountColumn(
                     label: _tr('மாத வட்டி', 'Monthly interest'),
-                    value: _money(loan.monthlyInterest),
+                    value: _money(context, loan.monthlyInterest),
                   ),
                 ),
               ],
@@ -1777,8 +1773,8 @@ class _LoanCard extends StatelessWidget {
                   ? _tr('இந்த மாத வட்டி செலுத்தப்பட்டது',
                       'This month interest is settled')
                   : _tr(
-                      'இந்த மாத வட்டி ${_money(status.remaining)} மீதி · தேதி ${loan.dueDay}',
-                      'Interest remaining ${_money(status.remaining)} · due day ${loan.dueDay}',
+                      'இந்த மாத வட்டி ${_money(context, status.remaining)} மீதி · தேதி ${loan.dueDay}',
+                      'Interest remaining ${_money(context, status.remaining)} · due day ${loan.dueDay}',
                     ),
               style: TextStyle(
                 color: status.isDue
@@ -2690,11 +2686,7 @@ class _PaymentFormDialogState extends State<PaymentFormDialog> {
 
 Future<void> _showDetails(BuildContext context, Loan loan, bool isTamil) async {
   String tr(String ta, String en) => isTamil ? ta : en;
-  String money(double value) => NumberFormat.currency(
-        locale: 'en_IN',
-        symbol: '₹',
-        decimalDigits: value % 1 == 0 ? 0 : 2,
-      ).format(value);
+  String money(double value) => privateMoney(context, value);
   final now = DateTime.now();
   final months =
       loan.rate > 0 ? loan.monthsThrough(now).reversed.toList() : <String>[];

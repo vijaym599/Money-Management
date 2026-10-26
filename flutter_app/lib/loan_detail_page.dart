@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'amount_privacy.dart';
 import 'models.dart';
 
 Future<void> showLoanDetailsPage(
@@ -37,14 +38,9 @@ class _LoanDetailsPage extends StatelessWidget {
 
   String _tr(String tamil, String english) => isTamil ? tamil : english;
 
-  String _money(double value) => NumberFormat.currency(
-        locale: 'en_IN',
-        symbol: '₹',
-        decimalDigits: value % 1 == 0 ? 0 : 2,
-      ).format(value);
-
   @override
   Widget build(BuildContext context) {
+    String money(double value) => privateMoney(context, value);
     final now = DateTime.now();
     final overdueInterest = loan.overdueInterest(today: now);
     final accruedInterest = loan.accruedInterest(today: now);
@@ -75,7 +71,7 @@ class _LoanDetailsPage extends StatelessWidget {
                   accruedInterest: accruedInterest,
                   overdueInterest: overdueInterest,
                   isTamil: isTamil,
-                  money: _money,
+                  money: money,
                 ),
                 const SizedBox(height: 14),
                 if (loan.isClosed)
@@ -121,11 +117,11 @@ class _LoanDetailsPage extends StatelessWidget {
                       ),
                     _InfoRow(
                       label: _tr('அசல் முதல்தொகை', 'Original principal'),
-                      value: _money(loan.principal),
+                      value: money(loan.principal),
                     ),
                     _InfoRow(
                       label: _tr('முதல்தொகை நிலுவை', 'Principal outstanding'),
-                      value: _money(loan.outstanding),
+                      value: money(loan.outstanding),
                     ),
                     if (loan.rate > 0) ...[
                       _InfoRow(
@@ -133,18 +129,18 @@ class _LoanDetailsPage extends StatelessWidget {
                           'இன்றுவரை சேர்ந்த வட்டி',
                           'Interest accrued to date',
                         ),
-                        value: _money(accruedInterest),
+                        value: money(accruedInterest),
                       ),
                       if (overdueInterest > .009)
                         _InfoRow(
                           label: _tr('காலாவதியான வட்டி', 'Interest overdue'),
-                          value: _money(overdueInterest),
+                          value: money(overdueInterest),
                           danger: true,
                         ),
                       _InfoRow(
                         label: _tr('மாத வட்டி', 'Monthly interest'),
                         value:
-                            '${loan.rate}%  •  ${_money(loan.monthlyInterest)}',
+                            '${loan.rate}%  •  ${money(loan.monthlyInterest)}',
                       ),
                       _InfoRow(
                         label: _tr('வட்டி செலுத்தும் நாள்', 'Interest due day'),
@@ -193,7 +189,7 @@ class _LoanDetailsPage extends StatelessWidget {
                     loan: loan,
                     months: months,
                     isTamil: isTamil,
-                    money: _money,
+                    money: money,
                   ),
                 ],
                 if (loan.payments.any((item) => item.type == 'principal')) ...[
@@ -210,7 +206,7 @@ class _LoanDetailsPage extends StatelessWidget {
                             ..sort((a, b) => b.date.compareTo(a.date)))
                         _InfoRow(
                           label: date.formatMediumDate(payment.date),
-                          value: _money(payment.amount),
+                          value: money(payment.amount),
                           success: true,
                         ),
                     ],

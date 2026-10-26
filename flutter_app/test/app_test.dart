@@ -29,6 +29,39 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('amount privacy toggle masks values across pages',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final loan = Loan(
+      id: 'privacy-test-loan',
+      direction: 'given',
+      person: 'Kumar',
+      principal: 5000,
+      rate: 0,
+      dueDay: 5,
+      startDate: DateTime(2026, 1, 1),
+      note: '',
+      payments: const [],
+    );
+    secureData[SecureDataStore.loansKey] = jsonEncode([loan.toJson()]);
+
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('₹5,000'), findsWidgets);
+    await tester.tap(find.byTooltip('Hide amounts'));
+    await tester.pump();
+    expect(find.text('₹ ••••••'), findsWidgets);
+    expect(find.text('₹5,000'), findsNothing);
+
+    await tester.tap(find.text('Loans'));
+    await tester.pumpAndSettle();
+    expect(find.text('₹ ••••••'), findsWidgets);
+    expect(find.text('₹5,000'), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('adds a loan and saves an interest payment locally',
       (tester) async {
     SharedPreferences.setMockInitialValues({
