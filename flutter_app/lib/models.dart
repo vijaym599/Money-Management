@@ -248,6 +248,43 @@ class Loan {
             interestPeriodSnapshots ?? this.interestPeriodSnapshots,
       );
 
+  /// Removes a recorded payment without leaving behind a calculation
+  /// snapshot that only existed because that interest period had payments.
+  Loan withoutPayment(String paymentId) {
+    final removed =
+        payments.where((payment) => payment.id == paymentId).toList();
+    if (removed.isEmpty) return this;
+
+    final remainingPayments =
+        payments.where((payment) => payment.id != paymentId).toList();
+    final snapshots =
+        Map<String, InterestPeriodSnapshot>.from(interestPeriodSnapshots);
+    for (final payment in removed.where((item) => item.type == 'interest')) {
+      final month = payment.month;
+      final stillHasPayment = remainingPayments.any(
+        (item) => item.type == 'interest' && item.month == month,
+      );
+      if (!stillHasPayment && month != null) snapshots.remove(month);
+    }
+
+    return Loan(
+      id: id,
+      direction: direction,
+      person: person,
+      principal: principal,
+      rate: rate,
+      dueDay: dueDay,
+      startDate: startDate,
+      interestStartDate: interestStartDate,
+      firstInterestDueDate: firstInterestDueDate,
+      note: note,
+      payments: remainingPayments,
+      phone: phone,
+      closedAt: closedAt,
+      interestPeriodSnapshots: snapshots,
+    );
+  }
+
   /// Applies new calculation settings without rewriting any transaction.
   /// Interest periods that already contain a payment are frozen to their
   /// original expected amount and due date, while unpaid periods recalculate.

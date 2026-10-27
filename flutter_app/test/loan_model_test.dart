@@ -186,7 +186,7 @@ void main() {
       expect(() => Loan.fromJson(json), throwsFormatException);
     });
 
-    test('stores a WhatsApp number and loads older loans without one', () {
+    test('stores a contact number and loads older loans without one', () {
       final loan = Loan(
         id: 'loan-contact',
         direction: 'given',
@@ -415,6 +415,42 @@ void main() {
       expect(loan.statusFor('2026-10').dueDate, DateTime(2026, 10, 31));
       expect(loan.overdueInterest(today: DateTime(2026, 10, 23)), 8000);
       expect(loan.overdueMonthCount(today: DateTime(2026, 10, 23)), 2);
+    });
+
+    test('removing the last payment also removes its stale snapshot', () {
+      final payment = LoanPayment(
+        id: 'remove-me',
+        type: 'interest',
+        amount: 50,
+        date: DateTime(2026, 1, 5),
+        month: '2026-01',
+      );
+      final original = Loan(
+        id: 'payment-correction',
+        direction: 'given',
+        person: 'Kumar',
+        principal: 10000,
+        rate: 2,
+        dueDay: 5,
+        startDate: DateTime(2026, 1, 1),
+        note: '',
+        payments: [payment],
+      ).withCalculationSettings(
+        person: 'Kumar',
+        phone: '',
+        rate: 3,
+        dueDay: 5,
+        startDate: DateTime(2026, 1, 1),
+        interestStartDate: DateTime(2026, 1, 1),
+        firstInterestDueDate: DateTime(2026, 1, 31),
+        note: '',
+      );
+
+      expect(original.interestPeriodSnapshots, contains('2026-01'));
+      final corrected = original.withoutPayment(payment.id);
+      expect(corrected.payments, isEmpty);
+      expect(corrected.interestPeriodSnapshots, isNot(contains('2026-01')));
+      expect(corrected.interestForMonth('2026-01'), 300);
     });
   });
 }

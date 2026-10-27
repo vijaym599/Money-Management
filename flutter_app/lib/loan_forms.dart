@@ -211,7 +211,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
         maxLength: 18,
         decoration: InputDecoration(
           labelText:
-              _tr('WhatsApp எண் (விருப்பம்)', 'WhatsApp number (optional)'),
+              _tr('தொடர்பு எண் (விருப்பம்)', 'Contact number (optional)'),
           hintText: '+91 98765 43210',
           prefixIcon: const Icon(Icons.phone_outlined),
         ),
@@ -419,8 +419,8 @@ class _LoanFormPageState extends State<LoanFormPage> {
                             'Optional details',
                           )),
                           subtitle: Text(_tr(
-                            'WhatsApp எண் மற்றும் குறிப்பு',
-                            'WhatsApp number and note',
+                            'தொடர்பு எண் மற்றும் குறிப்பு',
+                            'Contact number and note',
                           )),
                           childrenPadding:
                               const EdgeInsets.fromLTRB(14, 4, 14, 14),

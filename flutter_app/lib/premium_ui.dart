@@ -2,28 +2,26 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'amount_privacy.dart';
-import 'loan_reminder.dart';
 import 'models.dart';
 
 part 'savings_page.dart';
 
-const _brandBlue = Color(0xFF1769FF);
-const _brandNavy = Color(0xFF081B3A);
-const _softBlue = Color(0xFFEAF1FF);
+const _brandBlue = Color(0xFF7B2CF3);
+const _brandNavy = Color(0xFF260052);
+const _softBlue = Color(0xFFF2EAFF);
 const _success = Color(0xFF16A085);
-const _warning = Color(0xFFF59E0B);
+const _warning = Color(0xFFFF9F43);
 const _supportName = String.fromEnvironment('SUPPORT_NAME');
 const _supportPhone = String.fromEnvironment('SUPPORT_PHONE');
 const _supportEmail = String.fromEnvironment('SUPPORT_EMAIL');
 const _appVersion = String.fromEnvironment(
   'FLUTTER_BUILD_NAME',
-  defaultValue: '1.2.0',
+  defaultValue: '1.4.1',
 );
 
 class PremiumSplash extends StatelessWidget {
@@ -369,10 +367,15 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
               _currentPage == 0 || _currentPage == 1 || _currentPage == 3
                   ? FloatingActionButton.extended(
                       onPressed: _currentPage == 3 ? onAddSavings : onAddLoan,
-                      icon: const Icon(Icons.add_rounded),
-                      label: Text(_currentPage == 3
+                      tooltip: _currentPage == 3
                           ? _tr('சேமிப்பைச் சேர்', 'Add savings')
-                          : _tr('புதிய கடன்', 'New loan')),
+                          : _tr('புதிய கடன்', 'New loan'),
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(
+                        _currentPage == 3
+                            ? _tr('சேமிப்பைச் சேர்', 'Add savings')
+                            : _tr('புதிய கடன்', 'New loan'),
+                      ),
                     )
                   : null,
           bottomNavigationBar: useRail
@@ -469,7 +472,23 @@ class _DashboardPage extends StatelessWidget {
             overdue: overdue,
             isTamil: isTamil,
           ),
-          const SizedBox(height: 26),
+          Transform.translate(
+            offset: const Offset(0, -18),
+            child: _QuickActions(
+              isTamil: isTamil,
+              hasLoans: loans.isNotEmpty,
+              onAdd: onAddLoan,
+              onPayment: () => _pickLoanForPayment(
+                context,
+                loans,
+                isTamil,
+                onPayment,
+              ),
+              onCalculator: () => _showCalculator(context, isTamil),
+              onBackup: onBackup,
+            ),
+          ),
+          const SizedBox(height: 2),
           _ResponsiveSummaryGrid(
             children: [
               _MetricCard(
@@ -557,24 +576,6 @@ class _DashboardPage extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 26),
-          _SectionHeading(
-            title: _tr('விரைவு செயல்கள்', 'Quick actions'),
-          ),
-          const SizedBox(height: 12),
-          _QuickActions(
-            isTamil: isTamil,
-            hasLoans: loans.isNotEmpty,
-            onAdd: onAddLoan,
-            onPayment: () => _pickLoanForPayment(
-              context,
-              loans,
-              isTamil,
-              onPayment,
-            ),
-            onCalculator: () => _showCalculator(context, isTamil),
-            onBackup: onBackup,
-          ),
           const SizedBox(height: 100),
         ],
       ),
@@ -870,7 +871,7 @@ class _ReportsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _TopHeader(
-            title: _tr('அறிக்கைகள்', 'Reports'),
+            title: _tr('புள்ளிவிவரம்', 'Statistics'),
             subtitle: _tr('உங்கள் நிதி நிலையின் சுருக்கம்',
                 'A clear view of your financial position'),
           ),
@@ -884,6 +885,8 @@ class _ReportsPage extends StatelessWidget {
               ),
             )
           else ...[
+            _MonthlyChartCard(months: monthly, isTamil: isTamil),
+            const SizedBox(height: 18),
             LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 680;
@@ -915,8 +918,6 @@ class _ReportsPage extends StatelessWidget {
                       );
               },
             ),
-            const SizedBox(height: 18),
-            _MonthlyChartCard(months: monthly, isTamil: isTamil),
             const SizedBox(height: 18),
             _AdvancedAnalyticsCard(loans: loans, isTamil: isTamil),
           ],
@@ -1557,19 +1558,16 @@ class _PremiumNavigationBar extends StatelessWidget {
       top: false,
       minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: Container(
-        height: 68,
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+        height: 76,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
+          borderRadius: BorderRadius.circular(28),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x1808172D),
-              blurRadius: 24,
-              offset: Offset(0, 8),
+              color: Color(0x247B2CF3),
+              blurRadius: 28,
+              offset: Offset(0, 10),
             ),
           ],
         ),
@@ -1582,6 +1580,7 @@ class _PremiumNavigationBar extends StatelessWidget {
                   selectedIcon: items[index].$2,
                   label: items[index].$3,
                   selected: selectedIndex == index,
+                  prominent: index == 2,
                   onTap: () => onChanged(index),
                 ),
               ),
@@ -1599,6 +1598,7 @@ class _PremiumNavItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.prominent = false,
   });
 
   final IconData icon;
@@ -1606,6 +1606,7 @@ class _PremiumNavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool prominent;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -1619,7 +1620,7 @@ class _PremiumNavItem extends StatelessWidget {
             duration: const Duration(milliseconds: 260),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              color: selected ? _softBlue : Colors.transparent,
+              color: selected && !prominent ? _softBlue : Colors.transparent,
               borderRadius: BorderRadius.circular(18),
             ),
             child: Column(
@@ -1628,15 +1629,36 @@ class _PremiumNavItem extends StatelessWidget {
                 AnimatedScale(
                   duration: const Duration(milliseconds: 220),
                   scale: selected ? 1.08 : 1,
-                  child: Icon(
-                    selected ? selectedIcon : icon,
-                    color: selected
-                        ? _brandBlue
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                    size: 22,
+                  child: Container(
+                    width: prominent ? 42 : 30,
+                    height: prominent ? 42 : 30,
+                    decoration: prominent
+                        ? const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [_brandBlue, Color(0xFF9D4DFF)],
+                            ),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x557B2CF3),
+                                blurRadius: 14,
+                                offset: Offset(0, 6),
+                              ),
+                            ],
+                          )
+                        : null,
+                    child: Icon(
+                      selected ? selectedIcon : icon,
+                      color: prominent
+                          ? Colors.white
+                          : selected
+                              ? _brandBlue
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                      size: prominent ? 21 : 22,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 3),
+                SizedBox(height: prominent ? 1 : 2),
                 Text(
                   label,
                   maxLines: 1,
@@ -1722,7 +1744,7 @@ class _PageScroll extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 1120),
           child: ListView(
             key: PageStorageKey<String>('premium-page-$storageId'),
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
             children: [child],
           ),
         ),
@@ -1747,14 +1769,15 @@ class _GlobalAppHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          border: Border(
-            bottom: BorderSide(
-              color: Theme.of(context)
-                  .colorScheme
-                  .outlineVariant
-                  .withValues(alpha: .65),
-            ),
-          ),
+          boxShadow: Theme.of(context).brightness == Brightness.light
+              ? const [
+                  BoxShadow(
+                    color: Color(0x0D260052),
+                    blurRadius: 18,
+                    offset: Offset(0, 5),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           children: [
@@ -1763,14 +1786,14 @@ class _GlobalAppHeader extends StatelessWidget {
               height: 43,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [_brandBlue, Color(0xFF0A3EAA)],
+                  colors: [_brandBlue, Color(0xFF4A0799)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x351769FF),
+                    color: Color(0x457B2CF3),
                     blurRadius: 14,
                     offset: Offset(0, 6),
                   ),
@@ -1921,16 +1944,16 @@ class _BalanceHero extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [_brandBlue, Color(0xFF0C3E9D), _brandNavy],
+          colors: [_brandBlue, Color(0xFF5B0FC6), _brandNavy],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(30),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x401769FF),
-            blurRadius: 28,
-            offset: Offset(0, 14),
+            color: Color(0x4D7B2CF3),
+            blurRadius: 32,
+            offset: Offset(0, 15),
           ),
         ],
       ),
@@ -2075,27 +2098,30 @@ class _QuickActions extends StatelessWidget {
       ),
       (Icons.cloud_download_outlined, isTamil ? 'காப்பு' : 'Backup', onBackup),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final itemWidth = constraints.maxWidth >= 620
-            ? (constraints.maxWidth - 36) / 4
-            : (constraints.maxWidth - 12) / 2;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            for (final action in actions)
-              SizedBox(
-                width: itemWidth,
-                child: _QuickAction(
-                  icon: action.$1,
-                  label: action.$2,
-                  onTap: action.$3,
-                ),
+    return _SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Row(
+        children: [
+          for (var index = 0; index < actions.length; index++) ...[
+            Expanded(
+              child: _QuickAction(
+                icon: actions[index].$1,
+                label: actions[index].$2,
+                onTap: actions[index].$3,
+              ),
+            ),
+            if (index < actions.length - 1)
+              Container(
+                width: 1,
+                height: 44,
+                color: Theme.of(context)
+                    .colorScheme
+                    .outlineVariant
+                    .withValues(alpha: .5),
               ),
           ],
-        );
-      },
+        ],
+      ),
     );
   }
 }
@@ -2113,36 +2139,34 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
             child: Column(
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: _softBlue,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(icon, color: _brandBlue),
+                  child: Icon(icon, color: _brandBlue, size: 20),
                 ),
-                const SizedBox(height: 9),
+                const SizedBox(height: 7),
                 Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10,
+                  ),
                 ),
               ],
             ),
@@ -2159,10 +2183,8 @@ class _ResponsiveSummaryGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
-          final columns = constraints.maxWidth >= 760 ? 3 : 1;
-          final width = columns == 1
-              ? constraints.maxWidth
-              : (constraints.maxWidth - 24) / 3;
+          final columns = constraints.maxWidth >= 900 ? 4 : 2;
+          final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
           return Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -2193,15 +2215,15 @@ class _MetricCard extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: .1),
                 borderRadius: BorderRadius.circular(15),
               ),
               child: Icon(icon, color: color),
             ),
-            const SizedBox(width: 13),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2218,7 +2240,7 @@ class _MetricCard extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       value,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -2248,7 +2270,7 @@ class _InterestFreeSummary extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [Color(0xFF0F9D84), Color(0xFF087A69)],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: const [
           BoxShadow(
             color: Color(0x2616A085),
@@ -2582,18 +2604,12 @@ class _PremiumLoanCard extends StatelessWidget {
                             ),
                 ),
                 const SizedBox(width: 10),
-                if (isGiven) ...[
-                  IconButton.filledTonal(
-                    tooltip: _tr('பகிர்வு', 'Share'),
-                    onPressed: () => showLoanShareSheet(
-                      context,
-                      loan: loan,
-                      appIsTamil: isTamil,
-                    ),
-                    icon: const Icon(Icons.share_rounded),
-                  ),
-                  const SizedBox(width: 10),
-                ],
+                IconButton.filledTonal(
+                  tooltip: _tr('PDF பகிர்வு', 'Share PDF'),
+                  onPressed: onSharePdf,
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                ),
+                const SizedBox(width: 10),
                 IconButton.filledTonal(
                   tooltip: _tr('விவரங்கள்', 'Details'),
                   onPressed: onDetails,
@@ -3010,21 +3026,21 @@ class _SurfaceCard extends StatelessWidget {
             ? null
             : const [
                 BoxShadow(
-                  color: Color(0x0A0B1F44),
-                  blurRadius: 20,
-                  offset: Offset(0, 8),
+                  color: Color(0x12260052),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
                 ),
               ],
       ),
       child: Material(
         color: Theme.of(context).colorScheme.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           side: BorderSide(
             color: Theme.of(context)
                 .colorScheme
                 .outlineVariant
-                .withValues(alpha: .7),
+                .withValues(alpha: .45),
           ),
         ),
         clipBehavior: Clip.antiAlias,
@@ -3539,13 +3555,6 @@ class _TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isInterest = entry.payment.type == 'interest';
     return ListTile(
-      onTap: () => showLoanShareSheet(
-        context,
-        loan: entry.loan,
-        appIsTamil: isTamil,
-        initialType: LoanShareType.paymentReceipt,
-        payment: entry.payment,
-      ),
       leading: Container(
         width: 42,
         height: 42,
@@ -3564,26 +3573,9 @@ class _TransactionTile extends StatelessWidget {
       subtitle: Text(
         '${isTamil ? (isInterest ? 'வட்டி' : 'முதல்தொகை') : (isInterest ? 'Interest' : 'Principal')} • ${DateFormat('d MMM yyyy').format(entry.payment.date)}',
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _money(context, entry.payment.amount),
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: isTamil ? 'ரசீதை அனுப்பு' : 'Send receipt',
-            onPressed: () => showLoanShareSheet(
-              context,
-              loan: entry.loan,
-              appIsTamil: isTamil,
-              initialType: LoanShareType.paymentReceipt,
-              payment: entry.payment,
-            ),
-            icon: const Icon(Icons.send_outlined, size: 19),
-          ),
-        ],
+      trailing: Text(
+        _money(context, entry.payment.amount),
+        style: const TextStyle(fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -4189,251 +4181,6 @@ Future<void> _showPersonDetails(
         ),
       ),
     );
-
-Future<void> showLoanShareSheet(
-  BuildContext context, {
-  required Loan loan,
-  required bool appIsTamil,
-  LoanShareType initialType = LoanShareType.reminder,
-  LoanPayment? payment,
-}) async {
-  var selectedType = initialType;
-  var selectedLanguage =
-      appIsTamil ? LoanShareLanguage.tamil : LoanShareLanguage.english;
-  final paymentsByDate = [...loan.payments]..sort((a, b) {
-      final byDate = a.date.compareTo(b.date);
-      return byDate != 0 ? byDate : a.id.compareTo(b.id);
-    });
-  final recordedPayment =
-      payment != null && loan.payments.any((item) => item.id == payment.id)
-          ? payment
-          : (paymentsByDate.isEmpty ? null : paymentsByDate.last);
-  if (selectedType == LoanShareType.paymentReceipt && recordedPayment == null) {
-    selectedType = LoanShareType.reminder;
-  }
-
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (context, setSheetState) {
-        final message = LoanShareMessageBuilder.build(
-          loan: loan,
-          type: selectedType,
-          language: selectedLanguage,
-          payment: selectedType == LoanShareType.paymentReceipt
-              ? recordedPayment
-              : null,
-        );
-        String tr(String ta, String en) => appIsTamil ? ta : en;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            0,
-            20,
-            20 +
-                math.max(
-                  MediaQuery.viewInsetsOf(context).bottom,
-                  MediaQuery.viewPaddingOf(context).bottom,
-                ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tr('கணக்கு பகிர்வு', 'Share loan account'),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _ShareTypeChip(
-                    label: tr('நினைவூட்டல்', 'Reminder'),
-                    icon: Icons.notifications_none_rounded,
-                    selected: selectedType == LoanShareType.reminder,
-                    onSelected: () => setSheetState(
-                      () => selectedType = LoanShareType.reminder,
-                    ),
-                  ),
-                  _ShareTypeChip(
-                    label: tr('கடன் அறிக்கை', 'Statement'),
-                    icon: Icons.receipt_long_outlined,
-                    selected: selectedType == LoanShareType.statement,
-                    onSelected: () => setSheetState(
-                      () => selectedType = LoanShareType.statement,
-                    ),
-                  ),
-                  _ShareTypeChip(
-                    label: tr('பணம் பெற்ற ரசீது', 'Payment receipt'),
-                    icon: Icons.task_alt_rounded,
-                    selected: selectedType == LoanShareType.paymentReceipt,
-                    enabled: recordedPayment != null,
-                    onSelected: () => setSheetState(
-                      () => selectedType = LoanShareType.paymentReceipt,
-                    ),
-                  ),
-                ],
-              ),
-              if (recordedPayment == null) ...[
-                const SizedBox(height: 7),
-                Text(
-                  tr(
-                    'பதிவு செய்யப்பட்ட செலுத்தல் இருந்தால் மட்டுமே ரசீது கிடைக்கும்.',
-                    'A receipt is available only after a payment is recorded.',
-                  ),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 14),
-              SegmentedButton<LoanShareLanguage>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(
-                    value: LoanShareLanguage.english,
-                    label: Text('English'),
-                  ),
-                  ButtonSegment(
-                    value: LoanShareLanguage.tamil,
-                    label: Text('தமிழ்'),
-                  ),
-                  ButtonSegment(
-                    value: LoanShareLanguage.both,
-                    label: Text('Both'),
-                  ),
-                ],
-                selected: {selectedLanguage},
-                onSelectionChanged: (selection) => setSheetState(
-                  () => selectedLanguage = selection.first,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                tr('முன்னோட்டம்', 'Preview'),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 7),
-              Container(
-                width: double.infinity,
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(context).height * .36,
-                ),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: .55),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    message,
-                    style: const TextStyle(height: 1.45, fontSize: 13),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: message));
-                        if (sheetContext.mounted) {
-                          ScaffoldMessenger.of(sheetContext).showSnackBar(
-                            SnackBar(
-                              content: Text(tr(
-                                'செய்தி நகலெடுக்கப்பட்டது.',
-                                'Message copied.',
-                              )),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.copy_rounded),
-                      label: Text(tr('நகலெடு', 'Copy')),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _shareToWhatsApp(
-                        sheetContext,
-                        loan: loan,
-                        message: message,
-                        isTamil: appIsTamil,
-                      ),
-                      icon: const Icon(Icons.chat_rounded),
-                      label: const Text('WhatsApp'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    ),
-  );
-}
-
-class _ShareTypeChip extends StatelessWidget {
-  const _ShareTypeChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onSelected,
-    this.enabled = true,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onSelected;
-
-  @override
-  Widget build(BuildContext context) => ChoiceChip(
-        avatar: Icon(icon, size: 18),
-        label: Text(label),
-        selected: selected,
-        onSelected: enabled ? (_) => onSelected() : null,
-      );
-}
-
-Future<void> _shareToWhatsApp(
-  BuildContext context, {
-  required Loan loan,
-  required String message,
-  required bool isTamil,
-}) async {
-  var phone = loan.phone.replaceAll(RegExp(r'\D'), '');
-  if (phone.length == 10) phone = '91$phone';
-  final path = phone.isEmpty ? '/' : '/$phone';
-  final uri = Uri.https('wa.me', path, {'text': message});
-  try {
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened) throw StateError('WhatsApp did not open.');
-  } catch (_) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isTamil
-              ? 'WhatsApp-ஐ திறக்க முடியவில்லை.'
-              : 'Could not open WhatsApp.'),
-        ),
-      );
-    }
-  }
-}
 
 String _money(BuildContext context, double value) =>
     privateMoney(context, value);

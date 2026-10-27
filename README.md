@@ -50,4 +50,15 @@ flutter build apk --release
 
 APK: `flutter_app\build\app\outputs\flutter-apk\app-release.apk`
 
+சிறிய direct-download APK-களுக்கு:
+
+```powershell
+flutter build apk --release --split-per-abi
+```
+
+Production signing அமைப்பதற்கு
+`flutter_app/android/key.properties.example`-ஐ copy செய்து
+`key.properties` ஆக rename செய்து private upload-keystore values-ஐ கொடுக்கவும்.
+முழு audit: [`flutter_app/AUDIT.md`](./flutter_app/AUDIT.md).
+
 இந்த project தற்போது தனிப்பட்ட sideload பயன்பாட்டிற்கு debug signing fallback பயன்படுத்துகிறது. Play Store release-க்கு தனிப்பட்ட upload keystore மற்றும் release signing configuration சேர்க்க வேண்டும்.

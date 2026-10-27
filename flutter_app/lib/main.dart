@@ -11,7 +11,6 @@ import 'app_services.dart';
 import 'amount_privacy.dart';
 import 'loan_detail_page.dart';
 import 'loan_forms.dart';
-import 'loan_reminder.dart';
 import 'models.dart';
 import 'premium_ui.dart';
 import 'savings_form_page.dart';
@@ -494,14 +493,48 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         .toList();
     final saved = await _saveLoans(updated);
     if (!saved || !mounted) return;
-    final updatedLoan = updated.firstWhere((item) => item.id == loan.id);
-    await showLoanShareSheet(
-      _appContext,
-      loan: updatedLoan,
-      appIsTamil: _isTamil,
-      initialType: LoanShareType.paymentReceipt,
-      payment: payment,
+    _message(_tr('செலுத்தல் பதிவு செய்யப்பட்டது.', 'Payment recorded.'));
+  }
+
+  Future<bool> _deletePayment(Loan loan, LoanPayment payment) async {
+    if (loan.isClosed) {
+      _message(_tr(
+        'மூடப்பட்ட கடனின் செலுத்தலை நீக்க முடியாது.',
+        'Payments in a closed loan cannot be deleted.',
+      ));
+      return false;
+    }
+    final confirmed = await showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('செலுத்தலை நீக்கவா?', 'Delete payment?')),
+        content: Text(_tr(
+          '${loan.person} கணக்கில் உள்ள ${privateMoney(_appContext, payment.amount)} செலுத்தல் நீக்கப்படும். நிலுவை மீண்டும் கணக்கிடப்படும்.',
+          '${privateMoney(_appContext, payment.amount)} will be removed from ${loan.person}. Balances will be recalculated.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('நீக்கு', 'Delete')),
+          ),
+        ],
+      ),
     );
+    if (confirmed != true) return false;
+
+    final updated = _loans
+        .map((item) =>
+            item.id == loan.id ? item.withoutPayment(payment.id) : item)
+        .toList();
+    final saved = await _saveLoans(updated);
+    if (saved && mounted) {
+      _message(_tr('செலுத்தல் நீக்கப்பட்டது.', 'Payment deleted.'));
+    }
+    return saved;
   }
 
   Future<void> _closeLoan(Loan loan) async {
@@ -560,7 +593,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
             keyboardType: TextInputType.phone,
             maxLength: 18,
             decoration: InputDecoration(
-              labelText: _tr('WhatsApp எண்', 'WhatsApp number'),
+              labelText: _tr('தொடர்பு எண்', 'Contact number'),
               hintText: '+91 98765 43210',
               prefixIcon: const Icon(Icons.phone_outlined),
             ),
@@ -818,9 +851,21 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   Future<void> _showBackup() async {
     final controller = TextEditingController(
       text: jsonEncode({
-        'version': 2,
+        'format': 'loantrack-backup',
+        'version': 3,
+        'exportedAt': DateTime.now().toUtc().toIso8601String(),
         'loans': _loans.map((loan) => loan.toJson()).toList(),
         'savings': _savings.map((entry) => entry.toJson()).toList(),
+        'profile': {
+          'name': _profileName,
+          'phone': _profilePhone,
+          'imageBase64': _profileImageBase64,
+        },
+        'preferences': {
+          'language': _language,
+          'darkMode': _darkMode,
+          'notifications': _notificationsEnabled,
+        },
       }),
     );
     await showDialog<void>(
@@ -872,6 +917,9 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                         ? decoded['loans']
                         : null;
                 final rawSavings = decoded is Map ? decoded['savings'] : null;
+                final rawProfile = decoded is Map ? decoded['profile'] : null;
+                final rawPreferences =
+                    decoded is Map ? decoded['preferences'] : null;
                 if (rawLoans is! List) {
                   throw const FormatException('Backup does not contain loans.');
                 }
@@ -895,6 +943,10 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                           }).toList()
                         : throw const FormatException(
                             'Backup savings are invalid.');
+                _validateRestoredData(restoredLoans, restoredSavings);
+                final restoredProfile = _parseBackupProfile(rawProfile);
+                final restoredPreferences =
+                    _parseBackupPreferences(rawPreferences);
                 if (!dialogContext.mounted) return;
                 final confirmed = await showDialog<bool>(
                   context: dialogContext,
@@ -920,7 +972,17 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                 final loansSaved = await _saveLoans(restoredLoans);
                 final savingsSaved = await _saveSavings(restoredSavings);
                 if (!loansSaved || !savingsSaved) return;
+                await _restoreBackupPreferences(
+                  restoredProfile,
+                  restoredPreferences,
+                );
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  _message(_tr(
+                    'காப்புப் பிரதி மீட்டமைக்கப்பட்டது.',
+                    'Backup restored successfully.',
+                  ));
+                }
               } catch (error) {
                 debugPrint('Could not restore backup: $error');
                 if (dialogContext.mounted) {
@@ -943,13 +1005,132 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     controller.dispose();
   }
 
+  void _validateRestoredData(
+    List<Loan> loans,
+    List<SavingsEntry> savings,
+  ) {
+    if (loans.length > 10000 || savings.length > 10000) {
+      throw const FormatException('Backup contains too many records.');
+    }
+    final loanIds = <String>{};
+    final paymentIds = <String>{};
+    for (final loan in loans) {
+      if (!loanIds.add(loan.id)) {
+        throw const FormatException('Backup contains duplicate loan IDs.');
+      }
+      if (loan.payments.length > 50000) {
+        throw const FormatException('A loan contains too many payments.');
+      }
+      for (final payment in loan.payments) {
+        if (!paymentIds.add(payment.id)) {
+          throw const FormatException('Backup contains duplicate payment IDs.');
+        }
+      }
+    }
+    final savingsIds = <String>{};
+    for (final entry in savings) {
+      if (!savingsIds.add(entry.id)) {
+        throw const FormatException('Backup contains duplicate savings IDs.');
+      }
+    }
+  }
+
+  Map<String, String?>? _parseBackupProfile(Object? raw) {
+    if (raw == null) return null;
+    if (raw is! Map) throw const FormatException('Backup profile is invalid.');
+    final name = raw['name'];
+    final phone = raw['phone'];
+    final image = raw['imageBase64'];
+    if (name is! String ||
+        phone is! String ||
+        name.length > 100 ||
+        phone.length > 30 ||
+        (image != null && image is! String)) {
+      throw const FormatException('Backup profile is invalid.');
+    }
+    if (image is String) {
+      if (image.length > 1300000 || base64Decode(image).length > 900000) {
+        throw const FormatException('Backup profile photo is too large.');
+      }
+    }
+    return {
+      'name': name.trim(),
+      'phone': phone.trim(),
+      'image': image as String?
+    };
+  }
+
+  Map<String, Object?>? _parseBackupPreferences(Object? raw) {
+    if (raw == null) return null;
+    if (raw is! Map) {
+      throw const FormatException('Backup preferences are invalid.');
+    }
+    final language = raw['language'];
+    final darkMode = raw['darkMode'];
+    final notifications = raw['notifications'];
+    if ((language != 'ta' && language != 'en') ||
+        darkMode is! bool ||
+        notifications is! bool) {
+      throw const FormatException('Backup preferences are invalid.');
+    }
+    return {
+      'language': language,
+      'darkMode': darkMode,
+      'notifications': notifications,
+    };
+  }
+
+  Future<void> _restoreBackupPreferences(
+    Map<String, String?>? profile,
+    Map<String, Object?>? preferences,
+  ) async {
+    if (profile == null && preferences == null) return;
+    final store = await SharedPreferences.getInstance();
+    if (profile != null) {
+      await store.setString(_nameKey, profile['name'] ?? '');
+      await store.setString(_phoneKey, profile['phone'] ?? '');
+      final image = profile['image'];
+      if (image == null) {
+        await store.remove(_profileImageKey);
+      } else {
+        await store.setString(_profileImageKey, image);
+      }
+    }
+    if (preferences != null) {
+      await store.setString(_languageKey, preferences['language']! as String);
+      await store.setBool(_themeKey, preferences['darkMode']! as bool);
+      await store.setBool(
+        _notificationsKey,
+        preferences['notifications']! as bool,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      if (profile != null) {
+        _profileName = profile['name'] ?? '';
+        _profilePhone = profile['phone'] ?? '';
+        _profileImageBase64 = profile['image'];
+      }
+      if (preferences != null) {
+        _language = preferences['language']! as String;
+        _darkMode = preferences['darkMode']! as bool;
+        _notificationsEnabled = preferences['notifications']! as bool;
+      }
+    });
+    await LoanNotificationService.instance.sync(
+      loans: _loans,
+      enabled: _notificationsEnabled,
+      isTamil: _isTamil,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = Locale(_language);
     final colors = ColorScheme.fromSeed(
-      seedColor: const Color(0xff1769ff),
+      seedColor: const Color(0xff7b2cf3),
       brightness: _darkMode ? Brightness.dark : Brightness.light,
-      surface: _darkMode ? const Color(0xff101a2b) : Colors.white,
+      surface: _darkMode ? const Color(0xff171020) : Colors.white,
     );
     return MaterialApp(
       builder: (context, child) => AmountPrivacyScope(
@@ -981,7 +1162,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         ),
         colorScheme: colors,
         scaffoldBackgroundColor:
-            _darkMode ? const Color(0xff081321) : const Color(0xfff5f7fb),
+            _darkMode ? const Color(0xff100b18) : const Color(0xfff8f6fc),
         fontFamily: 'sans-serif',
         appBarTheme: AppBarTheme(
           elevation: 0,
@@ -1118,11 +1299,9 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                         loan: loan,
                         isTamil: _isTamil,
                         onPayment: () => _addPayment(loan),
-                        onShare: () => showLoanShareSheet(
-                          context,
-                          loan: loan,
-                          appIsTamil: _isTamil,
-                        ),
+                        onSharePdf: () => _shareLoanPdf(loan),
+                        onDeletePayment: (payment) =>
+                            _deletePayment(loan, payment),
                       ),
                       onLanguageChanged: _changeLanguage,
                       onThemeChanged: _changeTheme,

@@ -143,11 +143,6 @@ void main() {
     await tester.tap(find.text('பதிவு செய்'));
     await tester.pumpAndSettle();
 
-    expect(find.text('பணம் பெற்ற ரசீது'), findsOneWidget);
-    expect(find.text('English'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, 'நகலெடு'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'WhatsApp'), findsOneWidget);
-
     final stored = jsonDecode(
       secureData[SecureDataStore.loansKey]!,
     ) as List<dynamic>;

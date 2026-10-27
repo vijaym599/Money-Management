@@ -9,7 +9,8 @@ Future<void> showLoanDetailsPage(
   required Loan loan,
   required bool isTamil,
   required VoidCallback onPayment,
-  required VoidCallback onShare,
+  required VoidCallback onSharePdf,
+  required Future<bool> Function(LoanPayment payment) onDeletePayment,
 }) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute(
@@ -17,7 +18,8 @@ Future<void> showLoanDetailsPage(
         loan: loan,
         isTamil: isTamil,
         onPayment: onPayment,
-        onShare: onShare,
+        onSharePdf: onSharePdf,
+        onDeletePayment: onDeletePayment,
       ),
     ),
   );
@@ -28,13 +30,15 @@ class _LoanDetailsPage extends StatelessWidget {
     required this.loan,
     required this.isTamil,
     required this.onPayment,
-    required this.onShare,
+    required this.onSharePdf,
+    required this.onDeletePayment,
   });
 
   final Loan loan;
   final bool isTamil;
   final VoidCallback onPayment;
-  final VoidCallback onShare;
+  final VoidCallback onSharePdf;
+  final Future<bool> Function(LoanPayment payment) onDeletePayment;
 
   String _tr(String tamil, String english) => isTamil ? tamil : english;
 
@@ -53,9 +57,9 @@ class _LoanDetailsPage extends StatelessWidget {
         title: Text(loan.person),
         actions: [
           IconButton(
-            tooltip: _tr('பகிர்', 'Share'),
-            onPressed: onShare,
-            icon: const Icon(Icons.share_outlined),
+            tooltip: _tr('PDF பகிர்வு', 'Share PDF'),
+            onPressed: onSharePdf,
+            icon: const Icon(Icons.picture_as_pdf_outlined),
           ),
         ],
       ),
@@ -111,7 +115,7 @@ class _LoanDetailsPage extends StatelessWidget {
                     ),
                     if (loan.phone.isNotEmpty)
                       _InfoRow(
-                        label: _tr('WhatsApp எண்', 'WhatsApp number'),
+                        label: _tr('தொடர்பு எண்', 'Contact number'),
                         value: loan.phone,
                         highlight: true,
                       ),
@@ -192,24 +196,16 @@ class _LoanDetailsPage extends StatelessWidget {
                     money: money,
                   ),
                 ],
-                if (loan.payments.any((item) => item.type == 'principal')) ...[
+                if (loan.payments.isNotEmpty) ...[
                   const SizedBox(height: 14),
-                  _SectionCard(
-                    title:
-                        _tr('முதல்தொகை செலுத்தல்கள்', 'Principal repayments'),
-                    icon: Icons.payments_outlined,
-                    rows: [
-                      for (final payment
-                          in loan.payments
-                              .where((item) => item.type == 'principal')
-                              .toList()
-                            ..sort((a, b) => b.date.compareTo(a.date)))
-                        _InfoRow(
-                          label: date.formatMediumDate(payment.date),
-                          value: money(payment.amount),
-                          success: true,
-                        ),
-                    ],
+                  _PaymentHistoryCard(
+                    title: _tr('செலுக்கை வரலாறு', 'Payment history'),
+                    payments: loan.payments.toList()
+                      ..sort((a, b) => b.date.compareTo(a.date)),
+                    isTamil: isTamil,
+                    money: money,
+                    canDelete: !loan.isClosed,
+                    onDelete: onDeletePayment,
                   ),
                 ],
               ],
@@ -219,6 +215,67 @@ class _LoanDetailsPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PaymentHistoryCard extends StatelessWidget {
+  const _PaymentHistoryCard({
+    required this.title,
+    required this.payments,
+    required this.isTamil,
+    required this.money,
+    required this.canDelete,
+    required this.onDelete,
+  });
+
+  final String title;
+  final List<LoanPayment> payments;
+  final bool isTamil;
+  final String Function(double) money;
+  final bool canDelete;
+  final Future<bool> Function(LoanPayment payment) onDelete;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 15, 16, 8),
+              child: _SectionTitle(title: title, icon: Icons.payments_outlined),
+            ),
+            for (final payment in payments)
+              ListTile(
+                leading: const Icon(Icons.check_circle_outline_rounded,
+                    color: Color(0xFF16856F)),
+                title: Text(money(payment.amount),
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text([
+                  payment.type == 'interest'
+                      ? (isTamil ? 'வட்டி' : 'Interest')
+                      : (isTamil ? 'முதல்தொகை' : 'Principal'),
+                  if (payment.month != null) payment.month!,
+                  MaterialLocalizations.of(context)
+                      .formatMediumDate(payment.date),
+                ].join(' • ')),
+                trailing: canDelete
+                    ? IconButton(
+                        tooltip:
+                            isTamil ? 'செலுத்தலை நீக்கு' : 'Delete payment',
+                        onPressed: () async {
+                          final deleted = await onDelete(payment);
+                          if (deleted && context.mounted) {
+                            Navigator.pop(context);
+                          }
+                        },
+                        icon: const Icon(Icons.delete_outline_rounded),
+                      )
+                    : null,
+              ),
+          ],
+        ),
+      );
 }
 
 class _SummaryHero extends StatelessWidget {
@@ -245,7 +302,7 @@ class _SummaryHero extends StatelessWidget {
         gradient: LinearGradient(
           colors: [
             Theme.of(context).colorScheme.primary,
-            const Color(0xFF0A4FC4),
+            const Color(0xFF4A0799),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -253,7 +310,7 @@ class _SummaryHero extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x261769FF),
+            color: Color(0x337B2CF3),
             blurRadius: 22,
             offset: Offset(0, 10),
           ),
@@ -430,20 +487,17 @@ class _InfoRow extends StatelessWidget {
     required this.value,
     this.highlight = false,
     this.danger = false,
-    this.success = false,
   });
   final String label;
   final String value;
   final bool highlight;
   final bool danger;
-  final bool success;
 
   @override
   Widget build(BuildContext context) {
     Color? color;
     if (highlight) color = Theme.of(context).colorScheme.primary;
     if (danger) color = const Color(0xFFDC3C3C);
-    if (success) color = const Color(0xFF16856F);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
