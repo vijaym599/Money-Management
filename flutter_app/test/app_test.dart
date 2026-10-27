@@ -112,9 +112,19 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextFormField).at(0), 'அருண்');
-    await tester.enterText(find.byType(TextFormField).at(1), '9876543210');
-    await tester.enterText(find.byType(TextFormField).at(2), '10000');
-    await tester.enterText(find.byType(TextFormField).at(3), '2');
+    await tester.enterText(find.byType(TextFormField).at(1), '10000');
+    await tester.enterText(find.byType(TextFormField).at(2), '2');
+    expect(find.text('தானியங்கி வட்டி அட்டவணை'), findsOneWidget);
+    final optionalDetails = find.text('கூடுதல் விவரங்கள்');
+    await tester.scrollUntilVisible(
+      optionalDetails,
+      280,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(optionalDetails);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(3), '9876543210');
     await tester.ensureVisible(find.text('சேமி'));
     await tester.tap(find.text('சேமி'));
     await tester.pumpAndSettle();
@@ -146,6 +156,9 @@ void main() {
     );
     expect(loan.person, 'அருண்');
     expect(loan.phone, '9876543210');
+    expect(loan.interestStartDate, loan.startDate);
+    expect(loan.firstInterestDueDate.isAfter(loan.startDate), isTrue);
+    expect(loan.dueDay, loan.firstInterestDueDate.day);
     expect(loan.payments, hasLength(1));
     expect(loan.payments.single.type, 'interest');
     expect(loan.payments.single.amount, greaterThan(0));
@@ -172,7 +185,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('அறிக்கை தரவு இல்லை'), findsOneWidget);
 
-    await tester.tap(find.text('சுயவிவரம்'));
+    await tester.tap(find.byTooltip('சுயவிவரம்'));
     await tester.pumpAndSettle();
     expect(find.text('தனிப்பட்ட விவரங்கள்'), findsOneWidget);
 
@@ -216,8 +229,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'முருகன்');
-    await tester.enterText(find.byType(TextFormField).at(1), '9123456789');
-    await tester.enterText(find.byType(TextFormField).at(2), '5000');
+    await tester.enterText(find.byType(TextFormField).at(1), '5000');
     await tester.ensureVisible(find.text('வட்டி இல்லா கடன்'));
     await tester.tap(find.text('வட்டி இல்லா கடன்'));
     await tester.pumpAndSettle();
@@ -233,7 +245,7 @@ void main() {
     );
     expect(loan.rate, 0);
     expect(loan.principal, 5000);
-    expect(loan.phone, '9123456789');
+    expect(loan.phone, isEmpty);
 
     await tester.tap(find.text('கடன்கள்'));
     await tester.pumpAndSettle();

@@ -18,6 +18,8 @@ App source: [`flutter_app/`](./flutter_app/)
 - மாத வட்டி மற்றும் முதல்தொகை செலுத்தல்கள்
 - எல்லா பழைய மாதங்களின் மொத்த வட்டி நிலுவை
 - பழைய நிலுவை மாதத்தை முதலில் செலுத்தும் workflow
+- கடன் தேதியிலிருந்து ஒரு மாதம் முடிந்ததும் தானாக உருவாகும் வட்டி due date
+- உள்ளூரில் மட்டும் சேமிக்கப்படும் profile photo மற்றும் profile தகவல்
 - பெயர் தேடல் மற்றும் வகை filter
 - Tamil / English, light / dark theme
 - JSON backup மற்றும் restore validation

@@ -50,14 +50,17 @@ class _LoanFormPageState extends State<LoanFormPage> {
     _interestFree = loan?.rate == 0;
     _loanDate = loan?.startDate ?? now;
     _interestStartDate = loan?.interestStartDate ?? now;
-    _firstInterestDueDate = loan?.firstInterestDueDate ??
-        _dueDateFor(_interestStartDate, int.parse(_dueDay.text));
+    _firstInterestDueDate =
+        loan?.firstInterestDueDate ?? _dueDateFor(_interestStartDate);
+    if (loan == null) {
+      _dueDay.text = _firstInterestDueDate.day.toString();
+    }
   }
 
   String _plainNumber(double value) =>
       value == value.roundToDouble() ? value.toInt().toString() : '$value';
 
-  DateTime _dueDateFor(DateTime start, int _) {
+  DateTime _dueDateFor(DateTime start) {
     final nextMonth = DateTime(start.year, start.month + 1, 1);
     final anniversary = DateTime(
       nextMonth.year,
@@ -99,15 +102,18 @@ class _LoanFormPageState extends State<LoanFormPage> {
     if (selected != null) {
       setState(() {
         _loanDate = selected;
-        if (_interestStartDate.isBefore(selected)) {
+        if (!_editing) {
           _interestStartDate = selected;
-        }
-        final minimumDue = _dueDateFor(
-          _interestStartDate,
-          int.tryParse(_dueDay.text) ?? 5,
-        );
-        if (_firstInterestDueDate.isBefore(minimumDue)) {
-          _firstInterestDueDate = minimumDue;
+          _firstInterestDueDate = _dueDateFor(selected);
+          _dueDay.text = _firstInterestDueDate.day.toString();
+        } else {
+          if (_interestStartDate.isBefore(selected)) {
+            _interestStartDate = selected;
+          }
+          final minimumDue = _dueDateFor(_interestStartDate);
+          if (_firstInterestDueDate.isBefore(minimumDue)) {
+            _firstInterestDueDate = minimumDue;
+          }
         }
       });
     }
@@ -126,8 +132,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
     if (selected != null) {
       setState(() {
         _interestStartDate = selected;
-        final minimumDue =
-            _dueDateFor(selected, int.tryParse(_dueDay.text) ?? 5);
+        final minimumDue = _dueDateFor(selected);
         if (_firstInterestDueDate.isBefore(minimumDue)) {
           _firstInterestDueDate = minimumDue;
         }
@@ -137,8 +142,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
 
   Future<void> _pickFirstInterestDueDate() async {
     final now = DateTime.now();
-    final minimumDueDate =
-        _dueDateFor(_interestStartDate, int.tryParse(_dueDay.text) ?? 5);
+    final minimumDueDate = _dueDateFor(_interestStartDate);
     final selected = await showDatePicker(
       context: context,
       initialDate: _firstInterestDueDate.isBefore(minimumDueDate)
@@ -154,8 +158,9 @@ class _LoanFormPageState extends State<LoanFormPage> {
     if (!_formKey.currentState!.validate()) return;
     final principal = double.parse(_principal.text);
     final rate = double.parse(_rate.text);
-    final dueDay = int.parse(_dueDay.text);
-    final minimumFirstDueDate = _dueDateFor(_interestStartDate, dueDay);
+    final dueDay =
+        _editing ? int.parse(_dueDay.text) : _firstInterestDueDate.day;
+    final minimumFirstDueDate = _dueDateFor(_interestStartDate);
     if (_firstInterestDueDate.isBefore(minimumFirstDueDate) && rate > 0) {
       _message(_tr(
         'முதல் வட்டி தவணை ஒரு முழு மாதம் முடிந்த பிறகே இருக்க வேண்டும்.',
@@ -199,6 +204,40 @@ class _LoanFormPageState extends State<LoanFormPage> {
       value == null || value.trim().isEmpty
           ? _tr('$label நிரப்பவும்', 'Enter $label')
           : null;
+
+  Widget _phoneField() => TextFormField(
+        controller: _phone,
+        keyboardType: TextInputType.phone,
+        maxLength: 18,
+        decoration: InputDecoration(
+          labelText:
+              _tr('WhatsApp எண் (விருப்பம்)', 'WhatsApp number (optional)'),
+          hintText: '+91 98765 43210',
+          prefixIcon: const Icon(Icons.phone_outlined),
+        ),
+        validator: (value) {
+          if ((value ?? '').trim().isEmpty) return null;
+          final digits = value!.replaceAll(RegExp(r'\D'), '');
+          if (digits.length < 10 || digits.length > 15) {
+            return _tr(
+              'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
+              'Enter a valid phone number',
+            );
+          }
+          return null;
+        },
+      );
+
+  Widget _noteField() => TextFormField(
+        controller: _note,
+        maxLength: 120,
+        minLines: 1,
+        maxLines: 3,
+        decoration: InputDecoration(
+          labelText: _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
+          prefixIcon: const Icon(Icons.notes_rounded),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -250,28 +289,6 @@ class _LoanFormPageState extends State<LoanFormPage> {
                         ),
                         validator: (value) =>
                             _required(value, _tr('பெயரை', 'Name')),
-                      ),
-                      TextFormField(
-                        controller: _phone,
-                        keyboardType: TextInputType.phone,
-                        maxLength: 18,
-                        decoration: InputDecoration(
-                          labelText: _tr('WhatsApp எண் (விருப்பம்)',
-                              'WhatsApp number (optional)'),
-                          hintText: '+91 98765 43210',
-                          prefixIcon: const Icon(Icons.phone_outlined),
-                        ),
-                        validator: (value) {
-                          if ((value ?? '').trim().isEmpty) return null;
-                          final digits = value!.replaceAll(RegExp(r'\D'), '');
-                          if (digits.length < 10 || digits.length > 15) {
-                            return _tr(
-                              'சரியான தொலைபேசி எண்ணை உள்ளிடவும்',
-                              'Enter a valid phone number',
-                            );
-                          }
-                          return null;
-                        },
                       ),
                       TextFormField(
                         controller: _principal,
@@ -333,7 +350,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
                             return null;
                           },
                         ),
-                        if (_hasInterest) ...[
+                        if (_editing && _hasInterest) ...[
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: _dueDay,
@@ -363,7 +380,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
                         trailing: const Icon(Icons.calendar_month),
                         onTap: _pickLoanDate,
                       ),
-                      if (_hasInterest)
+                      if (_editing && _hasInterest)
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(_tr(
@@ -373,7 +390,7 @@ class _LoanFormPageState extends State<LoanFormPage> {
                           trailing: const Icon(Icons.calendar_month),
                           onTap: _pickInterestStartDate,
                         ),
-                      if (_hasInterest)
+                      if (_editing && _hasInterest)
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(_tr(
@@ -385,12 +402,33 @@ class _LoanFormPageState extends State<LoanFormPage> {
                           trailing: const Icon(Icons.event_available_outlined),
                           onTap: _pickFirstInterestDueDate,
                         ),
-                      TextFormField(
-                        controller: _note,
-                        maxLength: 120,
-                        decoration: InputDecoration(
-                          labelText:
-                              _tr('குறிப்பு (விருப்பம்)', 'Note (optional)'),
+                      if (!_editing && _hasInterest)
+                        _AutomaticScheduleCard(
+                          isTamil: widget.isTamil,
+                          loanDate: _loanDate,
+                          dueDate: _firstInterestDueDate,
+                        ),
+                      const SizedBox(height: 10),
+                      Card(
+                        child: ExpansionTile(
+                          initiallyExpanded:
+                              _phone.text.isNotEmpty || _note.text.isNotEmpty,
+                          leading: const Icon(Icons.tune_rounded),
+                          title: Text(_tr(
+                            'கூடுதல் விவரங்கள்',
+                            'Optional details',
+                          )),
+                          subtitle: Text(_tr(
+                            'WhatsApp எண் மற்றும் குறிப்பு',
+                            'WhatsApp number and note',
+                          )),
+                          childrenPadding:
+                              const EdgeInsets.fromLTRB(14, 4, 14, 14),
+                          children: [
+                            _phoneField(),
+                            const SizedBox(height: 8),
+                            _noteField(),
+                          ],
                         ),
                       ),
                       if (_hasInterest &&
@@ -435,6 +473,132 @@ class _LoanFormPageState extends State<LoanFormPage> {
             ),
           ),
         ),
+      );
+}
+
+class _AutomaticScheduleCard extends StatelessWidget {
+  const _AutomaticScheduleCard({
+    required this.isTamil,
+    required this.loanDate,
+    required this.dueDate,
+  });
+
+  final bool isTamil;
+  final DateTime loanDate;
+  final DateTime dueDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final localizations = MaterialLocalizations.of(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primaryContainer,
+            Theme.of(context).colorScheme.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: .22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded,
+                  color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  isTamil ? 'தானியங்கி வட்டி அட்டவணை' : 'Automatic schedule',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'AUTO',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: _ScheduleDate(
+                  label: isTamil ? 'கடன் தேதி' : 'Loan date',
+                  value: localizations.formatMediumDate(loanDate),
+                  icon: Icons.calendar_today_outlined,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(Icons.arrow_forward_rounded, size: 18),
+              ),
+              Expanded(
+                child: _ScheduleDate(
+                  label: isTamil ? 'முதல் வட்டி தேதி' : 'First interest due',
+                  value: localizations.formatMediumDate(dueDate),
+                  icon: Icons.event_available_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isTamil
+                ? 'ஒரு முழு மாத வட்டி காலம் முடிந்ததும் due date தானாக அமைக்கப்பட்டுள்ளது.'
+                : 'The due date is set automatically after one complete interest month.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScheduleDate extends StatelessWidget {
+  const _ScheduleDate({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(height: 5),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ],
       );
 }
 

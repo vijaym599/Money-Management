@@ -27,6 +27,7 @@ const _languageKey = 'kadan-kanakku-language';
 const _themeKey = 'kadan-kanakku-dark-mode';
 const _nameKey = 'kadan-kanakku-profile-name';
 const _phoneKey = 'kadan-kanakku-profile-phone';
+const _profileImageKey = 'kadan-kanakku-profile-image-v1';
 const _notificationsKey = 'kadan-kanakku-notifications';
 
 class _SmoothPageTransitionsBuilder extends PageTransitionsBuilder {
@@ -79,6 +80,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   String _language = 'en';
   String _profileName = '';
   String _profilePhone = '';
+  String? _profileImageBase64;
   String? _loadError;
   List<Loan> _loans = [];
   List<SavingsEntry> _savings = [];
@@ -156,6 +158,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         _darkMode = preferences.getBool(_themeKey) ?? false;
         _profileName = preferences.getString(_nameKey) ?? '';
         _profilePhone = preferences.getString(_phoneKey) ?? '';
+        _profileImageBase64 = preferences.getString(_profileImageKey);
         _appLockEnabled = appLockEnabled;
         _biometricEnabled = biometricEnabled;
         _notificationsEnabled = notificationsEnabled;
@@ -674,6 +677,34 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     }
   }
 
+  Future<void> _saveProfileImage(String? encodedImage) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final saved = encodedImage == null
+          ? await preferences.remove(_profileImageKey)
+          : await preferences.setString(_profileImageKey, encodedImage);
+      if (!saved) throw StateError('Local storage rejected the profile image.');
+      if (!mounted) return;
+      setState(() => _profileImageBase64 = encodedImage);
+      _message(_tr(
+        encodedImage == null
+            ? 'சுயவிவரப் படம் நீக்கப்பட்டது.'
+            : 'சுயவிவரப் படம் சேமிக்கப்பட்டது.',
+        encodedImage == null
+            ? 'Profile photo removed.'
+            : 'Profile photo saved.',
+      ));
+    } catch (error) {
+      debugPrint('Could not save profile image: $error');
+      if (mounted) {
+        _message(_tr(
+          'சுயவிவரப் படத்தைச் சேமிக்க முடியவில்லை.',
+          'Could not save the profile photo.',
+        ));
+      }
+    }
+  }
+
   Future<bool> _unlockWithPin(String pin) async {
     final preferences = await SharedPreferences.getInstance();
     final valid = await SecureDataStore.instance.verifyPin(preferences, pin);
@@ -1067,6 +1098,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                       darkMode: _darkMode,
                       profileName: _profileName,
                       profilePhone: _profilePhone,
+                      profileImageBase64: _profileImageBase64,
                       loadError: _loadError,
                       selectedPage: _selectedPage,
                       onPageChanged: (page) =>
@@ -1095,6 +1127,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                       onLanguageChanged: _changeLanguage,
                       onThemeChanged: _changeTheme,
                       onProfileSaved: _saveProfile,
+                      onProfileImageChanged: _saveProfileImage,
                       appLockEnabled: _appLockEnabled,
                       biometricEnabled: _biometricEnabled,
                       biometricAvailable: _biometricAvailable,

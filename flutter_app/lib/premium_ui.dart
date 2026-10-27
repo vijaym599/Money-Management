@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'amount_privacy.dart';
@@ -21,7 +23,7 @@ const _supportPhone = String.fromEnvironment('SUPPORT_PHONE');
 const _supportEmail = String.fromEnvironment('SUPPORT_EMAIL');
 const _appVersion = String.fromEnvironment(
   'FLUTTER_BUILD_NAME',
-  defaultValue: '1.1.0',
+  defaultValue: '1.2.0',
 );
 
 class PremiumSplash extends StatelessWidget {
@@ -103,6 +105,7 @@ class PremiumAppShell extends StatefulWidget {
     required this.darkMode,
     required this.profileName,
     required this.profilePhone,
+    required this.profileImageBase64,
     required this.loadError,
     required this.selectedPage,
     required this.onPageChanged,
@@ -120,6 +123,7 @@ class PremiumAppShell extends StatefulWidget {
     required this.onLanguageChanged,
     required this.onThemeChanged,
     required this.onProfileSaved,
+    required this.onProfileImageChanged,
     required this.appLockEnabled,
     required this.biometricEnabled,
     required this.biometricAvailable,
@@ -136,6 +140,7 @@ class PremiumAppShell extends StatefulWidget {
   final bool darkMode;
   final String profileName;
   final String profilePhone;
+  final String? profileImageBase64;
   final String? loadError;
   final int selectedPage;
   final ValueChanged<int> onPageChanged;
@@ -153,6 +158,7 @@ class PremiumAppShell extends StatefulWidget {
   final ValueChanged<String> onLanguageChanged;
   final ValueChanged<bool> onThemeChanged;
   final Future<void> Function(String name, String phone) onProfileSaved;
+  final Future<void> Function(String? encodedImage) onProfileImageChanged;
   final bool appLockEnabled;
   final bool biometricEnabled;
   final bool biometricAvailable;
@@ -228,6 +234,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final darkMode = widget.darkMode;
     final profileName = widget.profileName;
     final profilePhone = widget.profilePhone;
+    final profileImageBase64 = widget.profileImageBase64;
     final loadError = widget.loadError;
     final onAddLoan = widget.onAddLoan;
     final onEditLoan = widget.onEditLoan;
@@ -243,6 +250,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final onLanguageChanged = widget.onLanguageChanged;
     final onThemeChanged = widget.onThemeChanged;
     final onProfileSaved = widget.onProfileSaved;
+    final onProfileImageChanged = widget.onProfileImageChanged;
     final appLockEnabled = widget.appLockEnabled;
     final biometricEnabled = widget.biometricEnabled;
     final biometricAvailable = widget.biometricAvailable;
@@ -303,9 +311,11 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
         darkMode: darkMode,
         profileName: profileName,
         profilePhone: profilePhone,
+        profileImageBase64: profileImageBase64,
         onLanguageChanged: onLanguageChanged,
         onThemeChanged: onThemeChanged,
         onProfileSaved: onProfileSaved,
+        onProfileImageChanged: onProfileImageChanged,
         appLockEnabled: appLockEnabled,
         biometricEnabled: biometricEnabled,
         biometricAvailable: biometricAvailable,
@@ -330,14 +340,26 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
                     onChanged: _animateToPage,
                   ),
                 Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: _handlePageChanged,
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    allowImplicitScrolling: true,
-                    children: pages,
+                  child: Column(
+                    children: [
+                      _GlobalAppHeader(
+                        profileName: profileName,
+                        profileImageBase64: profileImageBase64,
+                        isTamil: isTamil,
+                        onProfileTap: () => _animateToPage(5),
+                      ),
+                      Expanded(
+                        child: PageView(
+                          controller: _pageController,
+                          onPageChanged: _handlePageChanged,
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          allowImplicitScrolling: true,
+                          children: pages,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1128,9 +1150,11 @@ class _ProfilePage extends StatefulWidget {
     required this.darkMode,
     required this.profileName,
     required this.profilePhone,
+    required this.profileImageBase64,
     required this.onLanguageChanged,
     required this.onThemeChanged,
     required this.onProfileSaved,
+    required this.onProfileImageChanged,
     required this.appLockEnabled,
     required this.biometricEnabled,
     required this.biometricAvailable,
@@ -1145,9 +1169,11 @@ class _ProfilePage extends StatefulWidget {
   final bool darkMode;
   final String profileName;
   final String profilePhone;
+  final String? profileImageBase64;
   final ValueChanged<String> onLanguageChanged;
   final ValueChanged<bool> onThemeChanged;
   final Future<void> Function(String name, String phone) onProfileSaved;
+  final Future<void> Function(String? encodedImage) onProfileImageChanged;
   final bool appLockEnabled;
   final bool biometricEnabled;
   final bool biometricAvailable;
@@ -1166,6 +1192,41 @@ class _ProfilePageState extends State<_ProfilePage>
   late final TextEditingController _phone;
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
+
+  Future<void> _pickProfileImage() async {
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 720,
+        maxHeight: 720,
+        imageQuality: 78,
+      );
+      if (image == null) return;
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 900000) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_tr(
+              'படம் மிகவும் பெரியது. சிறிய படத்தைத் தேர்வு செய்யவும்.',
+              'The photo is too large. Choose a smaller image.',
+            )),
+          ));
+        }
+        return;
+      }
+      await widget.onProfileImageChanged(base64Encode(bytes));
+    } catch (error) {
+      debugPrint('Could not select profile image: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_tr(
+            'படத்தைத் தேர்வு செய்ய முடியவில்லை.',
+            'Could not select the photo.',
+          )),
+        ));
+      }
+    }
+  }
 
   Future<void> _openContact(Uri uri) async {
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -1221,14 +1282,42 @@ class _ProfilePageState extends State<_ProfilePage>
           _ProfileHero(
             name: widget.profileName,
             phone: widget.profilePhone,
+            profileImageBase64: widget.profileImageBase64,
             loanCount: widget.loans.length,
             isTamil: widget.isTamil,
+            onPhotoTap: _pickProfileImage,
           ),
           const SizedBox(height: 18),
           _SettingsSection(
             title: _tr('தனிப்பட்ட விவரங்கள்', 'Personal details'),
             child: Column(
               children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: _ProfileAvatar(
+                    name: widget.profileName,
+                    encodedImage: widget.profileImageBase64,
+                    radius: 25,
+                  ),
+                  title: Text(_tr('சுயவிவரப் படம்', 'Profile photo')),
+                  subtitle: Text(_tr(
+                    'சாதனத்திலிருந்து ஒரு படத்தைத் தேர்வு செய்யவும்',
+                    'Choose a photo from this device',
+                  )),
+                  trailing: const Icon(Icons.add_a_photo_outlined),
+                  onTap: _pickProfileImage,
+                ),
+                if (widget.profileImageBase64 != null) ...[
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => widget.onProfileImageChanged(null),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(_tr('படத்தை நீக்கு', 'Remove photo')),
+                    ),
+                  ),
+                  const Divider(),
+                ],
                 TextField(
                   controller: _name,
                   textCapitalization: TextCapitalization.words,
@@ -1440,36 +1529,130 @@ class _PremiumNavigationBar extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   @override
-  Widget build(BuildContext context) => NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: onChanged,
-        destinations: [
-          _destination(Icons.home_outlined, Icons.home_rounded,
-              isTamil ? 'முகப்பு' : 'Home'),
-          _destination(
-              Icons.account_balance_wallet_outlined,
-              Icons.account_balance_wallet_rounded,
-              isTamil ? 'கடன்கள்' : 'Loans'),
-          _destination(Icons.people_outline_rounded, Icons.people_rounded,
-              isTamil ? 'நபர்கள்' : 'People'),
-          _destination(Icons.savings_outlined, Icons.savings_rounded,
-              isTamil ? 'சேமிப்பு' : 'Savings'),
-          _destination(Icons.bar_chart_outlined, Icons.bar_chart_rounded,
-              isTamil ? 'அறிக்கை' : 'Reports'),
-          _destination(Icons.person_outline_rounded, Icons.person_rounded,
-              isTamil ? 'சுயவிவரம்' : 'Profile'),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final items = [
+      (Icons.home_outlined, Icons.home_rounded, isTamil ? 'முகப்பு' : 'Home'),
+      (
+        Icons.account_balance_wallet_outlined,
+        Icons.account_balance_wallet_rounded,
+        isTamil ? 'கடன்கள்' : 'Loans'
+      ),
+      (
+        Icons.people_outline_rounded,
+        Icons.people_rounded,
+        isTamil ? 'நபர்கள்' : 'People'
+      ),
+      (
+        Icons.savings_outlined,
+        Icons.savings_rounded,
+        isTamil ? 'சேமிப்பு' : 'Savings'
+      ),
+      (
+        Icons.bar_chart_outlined,
+        Icons.bar_chart_rounded,
+        isTamil ? 'அறிக்கை' : 'Reports'
+      ),
+    ];
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Container(
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1808172D),
+              blurRadius: 24,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            for (var index = 0; index < items.length; index++)
+              Expanded(
+                child: _PremiumNavItem(
+                  icon: items[index].$1,
+                  selectedIcon: items[index].$2,
+                  label: items[index].$3,
+                  selected: selectedIndex == index,
+                  onTap: () => onChanged(index),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-  NavigationDestination _destination(
-    IconData icon,
-    IconData selected,
-    String label,
-  ) =>
-      NavigationDestination(
-        icon: Icon(icon),
-        selectedIcon: Icon(selected),
+class _PremiumNavItem extends StatelessWidget {
+  const _PremiumNavItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        selected: selected,
         label: label,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color: selected ? _softBlue : Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedScale(
+                  duration: const Duration(milliseconds: 220),
+                  scale: selected ? 1.08 : 1,
+                  child: Icon(
+                    selected ? selectedIcon : icon,
+                    color: selected
+                        ? _brandBlue
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? _brandBlue
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 10,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
 }
 
@@ -1546,6 +1729,106 @@ class _PageScroll extends StatelessWidget {
       );
 }
 
+class _GlobalAppHeader extends StatelessWidget {
+  const _GlobalAppHeader({
+    required this.profileName,
+    required this.profileImageBase64,
+    required this.isTamil,
+    required this.onProfileTap,
+  });
+
+  final String profileName;
+  final String? profileImageBase64;
+  final bool isTamil;
+  final VoidCallback onProfileTap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context)
+                  .colorScheme
+                  .outlineVariant
+                  .withValues(alpha: .65),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 43,
+              height: 43,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [_brandBlue, Color(0xFF0A3EAA)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x351769FF),
+                    blurRadius: 14,
+                    offset: Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Text(
+                  '₹',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'LoanTrack',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -.4,
+                    ),
+                  ),
+                  Text(
+                    isTamil ? 'உங்கள் கடன் கணக்கு' : 'Your private ledger',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            Tooltip(
+              message: isTamil ? 'சுயவிவரம்' : 'Profile',
+              child: InkWell(
+                onTap: onProfileTap,
+                customBorder: const CircleBorder(),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: _ProfileAvatar(
+                    name: profileName,
+                    encodedImage: profileImageBase64,
+                    radius: 21,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
 class _TopHeader extends StatelessWidget {
   const _TopHeader({
     required this.title,
@@ -1560,21 +1843,6 @@ class _TopHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
         children: [
-          Container(
-            width: 45,
-            height: 45,
-            decoration: BoxDecoration(
-              gradient:
-                  const LinearGradient(colors: [_brandBlue, Color(0xFF0A3EAA)]),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: const Icon(
-              Icons.account_balance_wallet_rounded,
-              color: Colors.white,
-              size: 23,
-            ),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2883,14 +3151,18 @@ class _ProfileHero extends StatelessWidget {
   const _ProfileHero({
     required this.name,
     required this.phone,
+    required this.profileImageBase64,
     required this.loanCount,
     required this.isTamil,
+    required this.onPhotoTap,
   });
 
   final String name;
   final String phone;
+  final String? profileImageBase64;
   final int loanCount;
   final bool isTamil;
+  final VoidCallback onPhotoTap;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -2902,17 +3174,37 @@ class _ProfileHero extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 34,
-              backgroundColor: Colors.white,
-              child: Text(
-                _initial(name.isEmpty ? (isTamil ? 'ப' : 'U') : name),
-                style: const TextStyle(
-                  color: _brandBlue,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                InkWell(
+                  onTap: onPhotoTap,
+                  customBorder: const CircleBorder(),
+                  child: _ProfileAvatar(
+                    name: name.isEmpty ? (isTamil ? 'ப' : 'U') : name,
+                    encodedImage: profileImageBase64,
+                    radius: 34,
+                  ),
                 ),
-              ),
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    width: 25,
+                    height: 25,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _brandBlue, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt_rounded,
+                      color: _brandBlue,
+                      size: 13,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(width: 15),
             Expanded(
@@ -2955,6 +3247,52 @@ class _ProfileHero extends StatelessWidget {
           ],
         ),
       );
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({
+    required this.name,
+    required this.encodedImage,
+    required this.radius,
+  });
+
+  final String name;
+  final String? encodedImage;
+  final double radius;
+
+  ImageProvider<Object>? get _image {
+    final value = encodedImage;
+    if (value == null || value.isEmpty) return null;
+    try {
+      return MemoryImage(base64Decode(value));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _image;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: CircleAvatar(
+        key: ValueKey(encodedImage ?? name),
+        radius: radius,
+        backgroundColor: _softBlue,
+        backgroundImage: image,
+        child: image == null
+            ? Text(
+                _initial(name.isEmpty ? 'U' : name),
+                style: TextStyle(
+                  color: _brandBlue,
+                  fontSize: radius * .7,
+                  fontWeight: FontWeight.w900,
+                ),
+              )
+            : null,
+      ),
+    );
+  }
 }
 
 class _SettingsSection extends StatelessWidget {
