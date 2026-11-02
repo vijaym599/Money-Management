@@ -27,6 +27,7 @@ class SecureDataStore {
   static const _pinSaltKey = 'app-lock-pin-salt-v1';
   static const _pinHashKey = 'app-lock-pin-hash-v1';
   static const _biometricKey = 'app-lock-biometric-v1';
+  static const _pinIterations = 60000;
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage(
     aOptions: AndroidOptions(migrateWithBackup: true),
@@ -151,7 +152,20 @@ class SecureDataStore {
     final salt = await _readSecret(preferences, _pinSaltKey);
     final expected = await _readSecret(preferences, _pinHashKey);
     if (salt == null || expected == null) return false;
-    return _constantTimeEquals(_hashPin(pin, salt), expected);
+    if (expected.startsWith('v2\$')) {
+      final parts = expected.split('\$');
+      if (parts.length != 3) return false;
+      final iterations = int.tryParse(parts[1]);
+      if (iterations == null || iterations < 1) return false;
+      final actual = _hashPin(pin, salt, iterations: iterations);
+      return _constantTimeEquals(actual, expected);
+    }
+    final legacy = _hashPinLegacy(pin, salt);
+    final valid = _constantTimeEquals(legacy, expected);
+    if (valid) {
+      await _writeSecret(preferences, _pinHashKey, _hashPin(pin, salt));
+    }
+    return valid;
   }
 
   Future<void> setPin(SharedPreferences preferences, String pin) async {
@@ -178,8 +192,32 @@ class SecureDataStore {
   ) =>
       _writeSecret(preferences, _biometricKey, enabled.toString());
 
-  String _hashPin(String pin, String salt) =>
+  String _hashPin(
+    String pin,
+    String salt, {
+    int iterations = _pinIterations,
+  }) {
+    final digest = _pbkdf2(utf8.encode(pin), salt, iterations);
+    final hex =
+        digest.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    return 'v2\$$iterations\$$hex';
+  }
+
+  String _hashPinLegacy(String pin, String salt) =>
       sha256.convert(utf8.encode('$salt:$pin')).toString();
+
+  List<int> _pbkdf2(List<int> password, String salt, int iterations) {
+    final saltBytes = <int>[...utf8.encode(salt), 0, 0, 0, 1];
+    var block = Hmac(sha256, password).convert(saltBytes).bytes;
+    final output = List<int>.from(block);
+    for (var i = 1; i < iterations; i++) {
+      block = Hmac(sha256, password).convert(block).bytes;
+      for (var j = 0; j < output.length; j++) {
+        output[j] ^= block[j];
+      }
+    }
+    return output;
+  }
 
   bool _constantTimeEquals(String left, String right) {
     if (left.length != right.length) return false;
@@ -233,6 +271,27 @@ class LoanNotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  String? _pendingPayload;
+  ValueChanged<String>? _onLoanTapped;
+
+  void setTapHandler(ValueChanged<String>? handler) {
+    _onLoanTapped = handler;
+    final pending = _pendingPayload;
+    if (handler != null && pending != null) {
+      _pendingPayload = null;
+      handler(pending);
+    }
+  }
+
+  void _handlePayload(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+    final handler = _onLoanTapped;
+    if (handler == null) {
+      _pendingPayload = payload;
+    } else {
+      handler(payload);
+    }
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -245,9 +304,17 @@ class LoanNotificationService {
               android: AndroidInitializationSettings('@mipmap/ic_launcher'),
               iOS: DarwinInitializationSettings(),
             ),
+            onDidReceiveNotificationResponse: (response) =>
+                _handlePayload(response.payload),
           )
           .timeout(const Duration(seconds: 3));
       _initialized = true;
+      final launch = await _plugin
+          .getNotificationAppLaunchDetails()
+          .timeout(const Duration(seconds: 3));
+      if (launch?.didNotificationLaunchApp ?? false) {
+        _handlePayload(launch?.notificationResponse?.payload);
+      }
     } catch (error) {
       debugPrint('Notification initialization unavailable: $error');
     }
@@ -370,6 +437,7 @@ class PdfStatementService {
     );
     final now = DateTime.now();
     final overdue = loan.overdueInterest(today: now);
+    final accrued = loan.accruedInterest(today: now);
     final months = loan.monthsThrough(now).reversed.toList();
     final payments = [...loan.payments]
       ..sort((a, b) => b.date.compareTo(a.date));
@@ -412,7 +480,7 @@ class PdfStatementService {
           ),
           if (loan.phone.isNotEmpty) pw.Text(loan.phone),
           pw.SizedBox(height: 16),
-          _summaryTable(loan, overdue, isTamil),
+          _summaryTable(loan, overdue, accrued, isTamil),
           if (loan.hasInterestLedger) ...[
             pw.SizedBox(height: 22),
             pw.Text(
@@ -430,7 +498,7 @@ class PdfStatementService {
               data: months.map((month) {
                 final status = loan.statusFor(month, today: now);
                 return [
-                  month,
+                  _monthLabel(month, isTamil),
                   _money(status.expected),
                   _money(status.paid),
                   _money(status.remaining),
@@ -468,7 +536,9 @@ class PdfStatementService {
                         payment.type == 'interest'
                             ? (isTamil ? 'வட்டி' : 'Interest')
                             : (isTamil ? 'முதல்தொகை' : 'Principal'),
-                        payment.month ?? '—',
+                        payment.month == null
+                            ? '—'
+                            : _monthLabel(payment.month!, isTamil),
                         _money(payment.amount),
                       ])
                   .toList(),
@@ -495,7 +565,12 @@ class PdfStatementService {
     return document.save();
   }
 
-  pw.Widget _summaryTable(Loan loan, double overdue, bool isTamil) {
+  pw.Widget _summaryTable(
+    Loan loan,
+    double overdue,
+    double accrued,
+    bool isTamil,
+  ) {
     final rows = <List<String>>[
       [
         isTamil ? 'கடன் வகை' : 'Loan type',
@@ -531,10 +606,15 @@ class PdfStatementService {
         _money(loan.outstanding)
       ],
       if (overdue > 0.009)
-        [isTamil ? 'வட்டி நிலுவை' : 'Interest outstanding', _money(overdue)],
+        [isTamil ? 'காலாவதியான வட்டி' : 'Overdue interest', _money(overdue)],
+      if (accrued - overdue > 0.009)
+        [
+          isTamil ? 'தற்போதைய கால வட்டி' : 'Interest accrued this period',
+          _money(accrued - overdue)
+        ],
       [
         isTamil ? 'மொத்த நிலுவை' : 'Total outstanding',
-        _money(loan.totalOutstanding())
+        _money(loan.settlementOutstanding())
       ],
       if (loan.lastPaymentDate != null)
         [
@@ -559,6 +639,20 @@ class PdfStatementService {
           )
           .toList(),
     );
+  }
+}
+
+String _monthLabel(String month, bool isTamil) {
+  final parts = month.split('-');
+  if (parts.length != 2) return month;
+  final year = int.tryParse(parts[0]);
+  final monthNumber = int.tryParse(parts[1]);
+  if (year == null || monthNumber == null) return month;
+  final date = DateTime(year, monthNumber);
+  try {
+    return DateFormat('MMM yyyy', isTamil ? 'ta' : 'en').format(date);
+  } catch (_) {
+    return DateFormat('MMM yyyy').format(date);
   }
 }
 

@@ -1,6 +1,6 @@
 part of 'premium_ui.dart';
 
-class _SavingsPage extends StatelessWidget {
+class _SavingsPage extends StatefulWidget {
   const _SavingsPage({
     required this.savings,
     required this.isTamil,
@@ -15,10 +15,24 @@ class _SavingsPage extends StatelessWidget {
   final ValueChanged<SavingsEntry> onEdit;
   final ValueChanged<SavingsEntry> onDelete;
 
-  String _tr(String tamil, String english) => isTamil ? tamil : english;
+  @override
+  State<_SavingsPage> createState() => _SavingsPageState();
+}
+
+class _SavingsPageState extends State<_SavingsPage> {
+  String _query = '';
+  String _typeFilter = 'all';
+  String _sort = 'recent';
+
+  String _tr(String tamil, String english) => widget.isTamil ? tamil : english;
 
   @override
   Widget build(BuildContext context) {
+    final savings = widget.savings;
+    final isTamil = widget.isTamil;
+    final onAdd = widget.onAdd;
+    final onEdit = widget.onEdit;
+    final onDelete = widget.onDelete;
     final total = savings.fold<double>(0, (sum, entry) => sum + entry.amount);
     final targetTotal = savings
         .where((entry) => entry.targetAmount != null)
@@ -36,6 +50,23 @@ class _SavingsPage extends StatelessWidget {
     }
     final grouped = groups.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final query = _query.toLowerCase();
+    final visible = savings.where((entry) {
+      final matchesQuery = query.isEmpty ||
+          entry.name.toLowerCase().contains(query) ||
+          entry.note.toLowerCase().contains(query);
+      final matchesType = _typeFilter == 'all' || entry.type == _typeFilter;
+      return matchesQuery && matchesType;
+    }).toList();
+    if (_sort == 'amount') {
+      visible.sort((a, b) => b.amount.compareTo(a.amount));
+    } else if (_sort == 'name') {
+      visible.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+    } else {
+      visible.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    }
 
     return _PageScroll(
       storageId: 'savings',
@@ -160,6 +191,67 @@ class _SavingsPage extends StatelessWidget {
           _SectionHeading(
             title: _tr('சேமிப்பு பதிவுகள்', 'Savings records'),
           ),
+          if (savings.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (value) => setState(() => _query = value.trim()),
+              decoration: InputDecoration(
+                hintText: _tr('சேமிப்பைத் தேடுங்கள்', 'Search savings'),
+                prefixIcon: const Icon(Icons.search_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _typeFilter,
+                    decoration: InputDecoration(
+                      labelText: _tr('வகை', 'Type'),
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: 'all',
+                        child: Text(_tr('அனைத்தும்', 'All')),
+                      ),
+                      for (final type in savingsEntryTypes)
+                        DropdownMenuItem(
+                          value: type,
+                          child: Text(_savingsTypeLabel(type, isTamil)),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _typeFilter = value ?? 'all'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _sort,
+                    decoration: InputDecoration(
+                      labelText: _tr('வரிசை', 'Sort'),
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: 'recent',
+                        child: Text(_tr('சமீபத்தியது', 'Recent')),
+                      ),
+                      DropdownMenuItem(
+                        value: 'amount',
+                        child: Text(_tr('தொகை', 'Amount')),
+                      ),
+                      DropdownMenuItem(
+                        value: 'name',
+                        child: Text(_tr('பெயர்', 'Name')),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _sort = value ?? 'recent'),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           if (savings.isEmpty)
             _PremiumEmptyState(
@@ -172,8 +264,16 @@ class _SavingsPage extends StatelessWidget {
               actionLabel: _tr('சேமிப்பைச் சேர்', 'Add savings'),
               onAction: onAdd,
             )
+          else if (visible.isEmpty)
+            _PremiumEmptyState(
+              title: _tr('பொருந்தும் பதிவுகள் இல்லை', 'No matching records'),
+              subtitle: _tr(
+                'தேடல் அல்லது வகையை மாற்றி முயற்சிக்கவும்.',
+                'Try a different search or type filter.',
+              ),
+            )
           else
-            for (final entry in savings)
+            for (final entry in visible)
               _SavingsEntryCard(
                 entry: entry,
                 isTamil: isTamil,
@@ -308,7 +408,7 @@ class _SavingsEntryCard extends StatelessWidget {
                         ? _tr(
                             '90 நாட்களுக்கு மேல் ஆகிவிட்டது — தொகையை சரிபார்க்கவும்',
                             'Over 90 days old — review this balance')
-                        : '${_tr('புதுப்பித்தது', 'Updated')}: ${DateFormat('d MMM yyyy').format(entry.updatedAt)}',
+                        : '${_tr('புதுப்பித்தது', 'Updated')}: ${DateFormat('d MMM yyyy', isTamil ? 'ta' : 'en').format(entry.updatedAt)}',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: needsReview ? _warning : null,
                           fontWeight: FontWeight.w600,

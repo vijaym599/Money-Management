@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -68,6 +69,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final _amountVisibility = ValueNotifier<bool>(true);
+  final _loansListenable = ValueNotifier<List<Loan>>(const []);
   bool _loading = true;
   bool _darkMode = false;
   bool _notificationsEnabled = false;
@@ -84,6 +86,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   List<Loan> _loans = [];
   List<SavingsEntry> _savings = [];
   int _selectedPage = 0;
+  String? _pendingNotificationLoanId;
 
   bool get _isTamil => _language == 'ta';
 
@@ -95,6 +98,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    LoanNotificationService.instance.setTapHandler(_handleNotificationTap);
     _load();
   }
 
@@ -102,6 +106,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _amountVisibility.dispose();
+    _loansListenable.dispose();
     super.dispose();
   }
 
@@ -119,8 +124,45 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     }
   }
 
+  void _handleNotificationTap(String loanId) {
+    _pendingNotificationLoanId = loanId;
+    _openPendingNotificationLoan();
+  }
+
+  void _openPendingNotificationLoan() {
+    final loanId = _pendingNotificationLoanId;
+    if (loanId == null || _loading || _locked) return;
+    Loan? found;
+    for (final item in _loans) {
+      if (item.id == loanId) {
+        found = item;
+        break;
+      }
+    }
+    if (found == null) return;
+    final loan = found;
+    _pendingNotificationLoanId = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_locked) {
+        _pendingNotificationLoanId = loan.id;
+        return;
+      }
+      showLoanDetailsPage(
+        _appContext,
+        loan: loan,
+        loansListenable: _loansListenable,
+        isTamil: _isTamil,
+        onPayment: () => _addPayment(loan),
+        onSharePdf: () => _shareLoanPdf(loan),
+        onDeletePayment: (payment) => _deletePayment(loan, payment),
+      );
+    });
+  }
+
   Future<void> _load() async {
     try {
+      await initializeDateFormatting();
       final preferences = await SharedPreferences.getInstance();
       final rawLoans = await SecureDataStore.instance.readLoans(preferences);
       final decoded = rawLoans == null ? <Object?>[] : jsonDecode(rawLoans);
@@ -164,6 +206,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         _locked = appLockEnabled;
         _loading = false;
       });
+      _loansListenable.value = loans;
       unawaited(_initializeDeviceServices(
         loans: loans,
         notificationsEnabled: notificationsEnabled,
@@ -200,6 +243,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     if (biometricEnabled && biometricAvailable && mounted) {
       await _unlockWithBiometrics();
     }
+    _openPendingNotificationLoan();
   }
 
   Future<bool> _store(String key, Object value) async {
@@ -230,12 +274,19 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     if (await SecureDataStore.instance.writeLoans(preferences, json) &&
         mounted) {
       setState(() => _loans = loans);
+      _loansListenable.value = loans;
       await LoanNotificationService.instance.sync(
         loans: loans,
         enabled: _notificationsEnabled,
         isTamil: _isTamil,
       );
       return true;
+    }
+    if (mounted) {
+      _message(_tr(
+        'கடன் விவரங்களை சேமிக்க முடியவில்லை.',
+        'Could not save the loan data.',
+      ));
     }
     return false;
   }
@@ -336,7 +387,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
 
   Future<bool?> _showLoanEditPreview(Loan oldLoan, Loan newLoan) {
     final now = DateTime.now();
-    final date = DateFormat('d MMM yyyy');
+    final date = DateFormat('d MMM yyyy', _isTamil ? 'ta' : 'en');
     String money(double value) => privateMoney(_appContext, value);
     final rows = <(String, String, String)>[
       (
@@ -741,7 +792,10 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   Future<bool> _unlockWithPin(String pin) async {
     final preferences = await SharedPreferences.getInstance();
     final valid = await SecureDataStore.instance.verifyPin(preferences, pin);
-    if (valid && mounted) setState(() => _locked = false);
+    if (valid && mounted) {
+      setState(() => _locked = false);
+      _openPendingNotificationLoan();
+    }
     return valid;
   }
 
@@ -751,7 +805,10 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     final authenticated = await DeviceAuthenticationService.instance
         .authenticate(isTamil: _isTamil);
     _authenticating = false;
-    if (authenticated && mounted) setState(() => _locked = false);
+    if (authenticated && mounted) {
+      setState(() => _locked = false);
+      _openPendingNotificationLoan();
+    }
   }
 
   Future<void> _configureSecurity() async {
@@ -1297,6 +1354,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                       onDetails: (context, loan) => showLoanDetailsPage(
                         context,
                         loan: loan,
+                        loansListenable: _loansListenable,
                         isTamil: _isTamil,
                         onPayment: () => _addPayment(loan),
                         onSharePdf: () => _shareLoanPdf(loan),
@@ -1340,31 +1398,71 @@ class AppLockScreen extends StatefulWidget {
 }
 
 class _AppLockScreenState extends State<AppLockScreen> {
+  static const _maxAttempts = 5;
+  static const _lockoutDuration = Duration(seconds: 30);
+
   final _pin = TextEditingController();
   bool _checking = false;
   String? _error;
+  int _failedAttempts = 0;
+  DateTime? _lockedUntil;
+  Timer? _lockoutTimer;
 
   String _tr(String ta, String en) => widget.isTamil ? ta : en;
 
   @override
   void dispose() {
+    _lockoutTimer?.cancel();
     _pin.dispose();
     super.dispose();
   }
 
+  bool get _isLockedOut {
+    final until = _lockedUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
   Future<void> _submit() async {
     if (_pin.text.length < 4 || _checking) return;
+    if (_isLockedOut) {
+      setState(() {
+        _error = _tr(
+          'பல தவறான முயற்சிகள். சிறிது நேரம் கழித்து முயற்சிக்கவும்.',
+          'Too many attempts. Try again shortly.',
+        );
+      });
+      return;
+    }
     setState(() {
       _checking = true;
       _error = null;
     });
     final valid = await widget.onPinSubmitted(_pin.text);
     if (!mounted || valid) return;
+    _failedAttempts += 1;
+    final lockedOut = _failedAttempts >= _maxAttempts;
     setState(() {
       _checking = false;
-      _error = _tr('PIN தவறாக உள்ளது', 'Incorrect PIN');
+      _error = lockedOut
+          ? _tr(
+              '5 தவறான முயற்சிகள். 30 வினாடிகள் கழித்து முயற்சிக்கவும்.',
+              '5 incorrect attempts. Try again in 30 seconds.',
+            )
+          : _tr('PIN தவறாக உள்ளது', 'Incorrect PIN');
       _pin.clear();
+      if (lockedOut) _lockedUntil = DateTime.now().add(_lockoutDuration);
     });
+    if (lockedOut) {
+      _lockoutTimer?.cancel();
+      _lockoutTimer = Timer(_lockoutDuration, () {
+        if (!mounted) return;
+        setState(() {
+          _lockedUntil = null;
+          _failedAttempts = 0;
+          _error = null;
+        });
+      });
+    }
   }
 
   @override

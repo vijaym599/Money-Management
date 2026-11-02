@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:kadan_kanakku/app_services.dart';
 import 'package:kadan_kanakku/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -180,7 +181,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('அறிக்கை தரவு இல்லை'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('சுயவிவரம்'));
+    await tester.tap(find.text('சுயவிவரம்'));
     await tester.pumpAndSettle();
     expect(find.text('தனிப்பட்ட விவரங்கள்'), findsOneWidget);
 
@@ -377,6 +378,103 @@ void main() {
     expect(find.text('வட்டி வசூல் விகிதம்'), findsOneWidget);
     expect(find.text('வட்டி நிலுவை காலப் பகுப்பு'), findsOneWidget);
     expect(find.text('குமார்'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('dashboard separates receivable and payable interest',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final start = DateTime(2025, 1, 1);
+    final given = Loan(
+      id: 'dashboard-given',
+      direction: 'given',
+      person: 'Given person',
+      principal: 1000,
+      rate: 10,
+      dueDay: 1,
+      startDate: start,
+      note: '',
+      payments: const [],
+    );
+    final taken = Loan(
+      id: 'dashboard-taken',
+      direction: 'taken',
+      person: 'Taken person',
+      principal: 500,
+      rate: 10,
+      dueDay: 1,
+      startDate: start,
+      note: '',
+      payments: const [],
+    );
+    secureData[SecureDataStore.loansKey] =
+        jsonEncode([given.toJson(), taken.toJson()]);
+
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+
+    final givenOverdue = given.overdueInterest();
+    final takenOverdue = taken.overdueInterest();
+    expect(givenOverdue, greaterThan(0));
+    expect(takenOverdue, greaterThan(0));
+    String money(double value) => NumberFormat.currency(
+          locale: 'en_IN',
+          symbol: '₹',
+          decimalDigits: value % 1 == 0 ? 0 : 2,
+        ).format(value);
+
+    expect(find.text(money(1000 + givenOverdue)), findsWidgets);
+    expect(find.text(money(500 + takenOverdue)), findsWidgets);
+    expect(find.text(money(500 + givenOverdue + takenOverdue)), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('detail page refreshes after recording a payment',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final loan = Loan(
+      id: 'detail-refresh-loan',
+      direction: 'given',
+      person: 'Kumar',
+      principal: 5000,
+      rate: 2,
+      dueDay: 5,
+      startDate: DateTime(2026, 1, 1),
+      note: '',
+      payments: const [],
+    );
+    secureData[SecureDataStore.loansKey] = jsonEncode([loan.toJson()]);
+
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.people_outline_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kumar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment history'), findsNothing);
+    final recordPayment = find.widgetWithText(FilledButton, 'Record payment');
+    await tester.ensureVisible(recordPayment);
+    await tester.pumpAndSettle();
+    await tester.tap(recordPayment);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Record'));
+    await tester.pumpAndSettle();
+
+    final stored = jsonDecode(secureData[SecureDataStore.loansKey]!) as List;
+    final saved = Loan.fromJson(
+      Map<String, Object?>.from(stored.single as Map),
+    );
+    expect(saved.payments, hasLength(1));
+    await tester.scrollUntilVisible(
+      find.text('Payment history'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Payment history'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   });

@@ -61,8 +61,11 @@ gitleaks-report.*
 # Generated distributables
 /*.apk
 /*.aab
+**/*.apk
+**/*.aab
 **/app-release.apk
 **/app-release.aab
+/Money-MM-latest.apk
 
 # Flutter/Dart generated files and caches
 **/.dart_tool/

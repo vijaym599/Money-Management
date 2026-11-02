@@ -44,6 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Generated distributables
+*.apk
+*.aab
+
 # Widget Preview related
 .widget_preview/
 .env.local

@@ -23,6 +23,7 @@ dependencies:
   printing: ^5.15.1
   crypto: ^3.0.7
   image_picker: ^1.2.4
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:

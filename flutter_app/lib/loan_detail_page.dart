@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -7,6 +8,7 @@ import 'models.dart';
 Future<void> showLoanDetailsPage(
   BuildContext context, {
   required Loan loan,
+  required ValueListenable<List<Loan>> loansListenable,
   required bool isTamil,
   required VoidCallback onPayment,
   required VoidCallback onSharePdf,
@@ -16,6 +18,7 @@ Future<void> showLoanDetailsPage(
     MaterialPageRoute(
       builder: (_) => _LoanDetailsPage(
         loan: loan,
+        loansListenable: loansListenable,
         isTamil: isTamil,
         onPayment: onPayment,
         onSharePdf: onSharePdf,
@@ -28,6 +31,7 @@ Future<void> showLoanDetailsPage(
 class _LoanDetailsPage extends StatelessWidget {
   const _LoanDetailsPage({
     required this.loan,
+    required this.loansListenable,
     required this.isTamil,
     required this.onPayment,
     required this.onSharePdf,
@@ -35,6 +39,7 @@ class _LoanDetailsPage extends StatelessWidget {
   });
 
   final Loan loan;
+  final ValueListenable<List<Loan>> loansListenable;
   final bool isTamil;
   final VoidCallback onPayment;
   final VoidCallback onSharePdf;
@@ -43,7 +48,18 @@ class _LoanDetailsPage extends StatelessWidget {
   String _tr(String tamil, String english) => isTamil ? tamil : english;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<List<Loan>>(
+        valueListenable: loansListenable,
+        builder: (context, loans, _) {
+          final current = loans.firstWhere(
+            (item) => item.id == loan.id,
+            orElse: () => loan,
+          );
+          return _buildDetails(context, current);
+        },
+      );
+
+  Widget _buildDetails(BuildContext context, Loan loan) {
     String money(double value) => privateMoney(context, value);
     final now = DateTime.now();
     final overdueInterest = loan.overdueInterest(today: now);
@@ -632,7 +648,7 @@ class _LedgerCard extends StatelessWidget {
       child: Column(
         children: [
           _LedgerRow(
-            month: DateFormat('MMM yyyy').format(date),
+            month: DateFormat('MMM yyyy', isTamil ? 'ta' : 'en').format(date),
             expected: money(status.expected),
             remaining: money(status.remaining),
             color: color,

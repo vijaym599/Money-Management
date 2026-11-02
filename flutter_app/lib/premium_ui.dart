@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'amount_privacy.dart';
@@ -19,10 +20,12 @@ const _warning = Color(0xFFFF9F43);
 const _supportName = String.fromEnvironment('SUPPORT_NAME');
 const _supportPhone = String.fromEnvironment('SUPPORT_PHONE');
 const _supportEmail = String.fromEnvironment('SUPPORT_EMAIL');
-const _appVersion = String.fromEnvironment(
-  'FLUTTER_BUILD_NAME',
-  defaultValue: '1.4.1',
-);
+Future<String>? _appVersionFuture;
+
+Future<String> _readAppVersion() => _appVersionFuture ??=
+    PackageInfo.fromPlatform().then((info) => info.version).catchError(
+          (_) => '',
+        );
 
 class PremiumSplash extends StatelessWidget {
   const PremiumSplash({super.key});
@@ -340,12 +343,6 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
                 Expanded(
                   child: Column(
                     children: [
-                      _GlobalAppHeader(
-                        profileName: profileName,
-                        profileImageBase64: profileImageBase64,
-                        isTamil: isTamil,
-                        onProfileTap: () => _animateToPage(5),
-                      ),
                       Expanded(
                         child: PageView(
                           controller: _pageController,
@@ -435,14 +432,21 @@ class _DashboardPage extends StatelessWidget {
     final borrowed = loans
         .where((loan) => loan.direction == 'taken')
         .fold<double>(0, (sum, loan) => sum + loan.outstanding);
-    final overdue = loans.fold<double>(
-      0,
-      (sum, loan) => sum + loan.overdueInterest(today: now),
-    );
+    final receivableInterest =
+        loans.where((loan) => loan.direction == 'given').fold<double>(
+              0,
+              (sum, loan) => sum + loan.overdueInterest(today: now),
+            );
+    final payableInterest =
+        loans.where((loan) => loan.direction == 'taken').fold<double>(
+              0,
+              (sum, loan) => sum + loan.overdueInterest(today: now),
+            );
     final dueCount =
         loans.where((loan) => loan.overdueInterest(today: now) > .009).length;
     final recentLoans = loans.take(3).toList();
     final entries = _paymentEntries(loans).take(4).toList();
+    final nextDue = _nextDueFor(loans, now);
 
     return _PageScroll(
       storageId: 'dashboard',
@@ -469,7 +473,8 @@ class _DashboardPage extends StatelessWidget {
           _BalanceHero(
             lent: lent,
             borrowed: borrowed,
-            overdue: overdue,
+            receivableInterest: receivableInterest,
+            payableInterest: payableInterest,
             isTamil: isTamil,
           ),
           Transform.translate(
@@ -504,10 +509,27 @@ class _DashboardPage extends StatelessWidget {
                 color: _warning,
               ),
               _MetricCard(
-                label: _tr('வட்டி நிலுவை', 'Interest overdue'),
-                value: _money(context, overdue),
+                label: _tr('பெற வேண்டிய வட்டி', 'Interest to receive'),
+                value: _money(context, receivableInterest),
                 icon: Icons.schedule_rounded,
-                color: overdue > 0 ? const Color(0xFFEF5350) : _success,
+                color: receivableInterest > 0 ? _success : _brandBlue,
+              ),
+              _MetricCard(
+                label: _tr('செலுத்த வேண்டிய வட்டி', 'Interest to pay'),
+                value: _money(context, payableInterest),
+                icon: Icons.schedule_rounded,
+                color: payableInterest > 0 ? const Color(0xFFEF5350) : _success,
+              ),
+              _MetricCard(
+                label: _tr('நிகர நிலை', 'Net position'),
+                value: _money(
+                  context,
+                  lent + receivableInterest - borrowed - payableInterest,
+                ),
+                icon: Icons.balance_rounded,
+                color: lent + receivableInterest >= borrowed + payableInterest
+                    ? _brandBlue
+                    : const Color(0xFFEF5350),
               ),
               _MetricCard(
                 label: _tr('மொத்த சேமிப்பு', 'Total savings'),
@@ -517,6 +539,15 @@ class _DashboardPage extends StatelessWidget {
               ),
             ],
           ),
+          if (nextDue != null) ...[
+            const SizedBox(height: 16),
+            _NextDueCard(
+              loan: nextDue.loan,
+              dueDate: nextDue.date,
+              amount: nextDue.amount,
+              isTamil: isTamil,
+            ),
+          ],
           const SizedBox(height: 28),
           _SectionHeading(
             title: _tr('சமீபத்திய கடன்கள்', 'Recent loans'),
@@ -863,7 +894,7 @@ class _ReportsPage extends StatelessWidget {
         .expand((loan) => loan.payments)
         .where((payment) => payment.type == 'interest')
         .fold<double>(0, (sum, payment) => sum + payment.amount);
-    final monthly = _monthlyInterest(loans);
+    final monthly = _monthlyInterest(loans, isTamil);
 
     return _PageScroll(
       storageId: 'reports',
@@ -1465,10 +1496,18 @@ class _ProfilePageState extends State<_ProfilePage>
                     icon: Icons.account_balance_wallet_rounded,
                   ),
                   title: const Text('LoanTrack'),
-                  subtitle: Text(_tr(
-                    'தனிப்பட்ட கடன் மற்றும் வட்டி கண்காணிப்பு',
-                    'Private loan and interest tracker • Version $_appVersion',
-                  )),
+                  subtitle: FutureBuilder<String>(
+                    future: _readAppVersion(),
+                    builder: (context, snapshot) {
+                      final version = snapshot.data;
+                      final suffix = version == null || version.isEmpty
+                          ? ''
+                          : ' • ${_tr('பதிப்பு', 'Version')} $version';
+                      return Text(
+                        '${_tr('தனிப்பட்ட கடன் மற்றும் வட்டி கண்காணிப்பு', 'Private loan and interest tracker')}$suffix',
+                      );
+                    },
+                  ),
                 ),
                 if (_supportPhone.isNotEmpty || _supportEmail.isNotEmpty) ...[
                   const Divider(),
@@ -1553,6 +1592,11 @@ class _PremiumNavigationBar extends StatelessWidget {
         Icons.bar_chart_rounded,
         isTamil ? 'அறிக்கை' : 'Reports'
       ),
+      (
+        Icons.person_outline_rounded,
+        Icons.person_rounded,
+        isTamil ? 'சுயவிவரம்' : 'Profile'
+      ),
     ];
     return SafeArea(
       top: false,
@@ -1609,73 +1653,82 @@ class _PremiumNavItem extends StatelessWidget {
   final bool prominent;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-        button: true,
-        selected: selected,
-        label: label,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              color: selected && !prominent ? _softBlue : Colors.transparent,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedScale(
-                  duration: const Duration(milliseconds: 220),
-                  scale: selected ? 1.08 : 1,
-                  child: Container(
-                    width: prominent ? 42 : 30,
-                    height: prominent ? 42 : 30,
-                    decoration: prominent
-                        ? const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [_brandBlue, Color(0xFF9D4DFF)],
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final accent = dark ? const Color(0xFFC9A7FF) : _brandBlue;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: selected && !prominent
+                ? (dark ? _brandBlue.withValues(alpha: .22) : _softBlue)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedScale(
+                duration: const Duration(milliseconds: 220),
+                scale: selected ? 1.08 : 1,
+                child: Container(
+                  width: prominent ? 42 : 30,
+                  height: prominent ? 42 : 30,
+                  decoration: prominent
+                      ? const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [_brandBlue, Color(0xFF9D4DFF)],
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x557B2CF3),
+                              blurRadius: 14,
+                              offset: Offset(0, 6),
                             ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Color(0x557B2CF3),
-                                blurRadius: 14,
-                                offset: Offset(0, 6),
-                              ),
-                            ],
-                          )
-                        : null,
-                    child: Icon(
-                      selected ? selectedIcon : icon,
-                      color: prominent
-                          ? Colors.white
-                          : selected
-                              ? _brandBlue
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                      size: prominent ? 21 : 22,
-                    ),
+                          ],
+                        )
+                      : null,
+                  child: Icon(
+                    selected ? selectedIcon : icon,
+                    color: prominent
+                        ? Colors.white
+                        : selected
+                            ? accent
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: prominent ? 21 : 22,
                   ),
                 ),
-                SizedBox(height: prominent ? 1 : 2),
-                Text(
+              ),
+              SizedBox(height: prominent ? 1 : 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
                   label,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: selected
-                        ? _brandBlue
+                        ? accent
                         : Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 10,
+                    fontSize: 10.5,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 class _PremiumRail extends StatelessWidget {
@@ -1751,107 +1804,6 @@ class _PageScroll extends StatelessWidget {
       );
 }
 
-class _GlobalAppHeader extends StatelessWidget {
-  const _GlobalAppHeader({
-    required this.profileName,
-    required this.profileImageBase64,
-    required this.isTamil,
-    required this.onProfileTap,
-  });
-
-  final String profileName;
-  final String? profileImageBase64;
-  final bool isTamil;
-  final VoidCallback onProfileTap;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          boxShadow: Theme.of(context).brightness == Brightness.light
-              ? const [
-                  BoxShadow(
-                    color: Color(0x0D260052),
-                    blurRadius: 18,
-                    offset: Offset(0, 5),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 43,
-              height: 43,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [_brandBlue, Color(0xFF4A0799)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x457B2CF3),
-                    blurRadius: 14,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: const Center(
-                child: Text(
-                  '₹',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'LoanTrack',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -.4,
-                    ),
-                  ),
-                  Text(
-                    isTamil ? 'உங்கள் கடன் கணக்கு' : 'Your private ledger',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            Tooltip(
-              message: isTamil ? 'சுயவிவரம்' : 'Profile',
-              child: InkWell(
-                onTap: onProfileTap,
-                customBorder: const CircleBorder(),
-                child: Padding(
-                  padding: const EdgeInsets.all(3),
-                  child: _ProfileAvatar(
-                    name: profileName,
-                    encodedImage: profileImageBase64,
-                    radius: 21,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-}
-
 class _TopHeader extends StatelessWidget {
   const _TopHeader({
     required this.title,
@@ -1922,17 +1874,101 @@ class _NotificationButton extends StatelessWidget {
       );
 }
 
+({Loan loan, DateTime date, double amount})? _nextDueFor(
+  List<Loan> loans,
+  DateTime now,
+) {
+  ({Loan loan, DateTime date, double amount})? best;
+  final today = DateTime(now.year, now.month, now.day);
+  final horizon = DateTime(now.year, now.month + 2, 0);
+  for (final loan in loans) {
+    if (loan.isClosed || loan.rate <= 0) continue;
+    for (final month in loan.monthsThrough(horizon)) {
+      final status = loan.statusFor(month, today: now);
+      if (status.remaining <= .009) continue;
+      if (status.dueDate.isBefore(today)) continue;
+      if (best == null || status.dueDate.isBefore(best.date)) {
+        best = (loan: loan, date: status.dueDate, amount: status.remaining);
+      }
+    }
+  }
+  return best;
+}
+
+class _NextDueCard extends StatelessWidget {
+  const _NextDueCard({
+    required this.loan,
+    required this.dueDate,
+    required this.amount,
+    required this.isTamil,
+  });
+
+  final Loan loan;
+  final DateTime dueDate;
+  final double amount;
+  final bool isTamil;
+
+  String _tr(String ta, String en) => isTamil ? ta : en;
+
+  @override
+  Widget build(BuildContext context) => _SurfaceCard(
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _warning.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(Icons.event_available_rounded, color: _warning),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _tr('அடுத்த வட்டி தவணை', 'Next interest due'),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${loan.person} • '
+                    '${DateFormat('d MMM yyyy', isTamil ? 'ta' : 'en').format(dueDate)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              _money(context, amount),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      );
+}
+
 class _BalanceHero extends StatelessWidget {
   const _BalanceHero({
     required this.lent,
     required this.borrowed,
-    required this.overdue,
+    required this.receivableInterest,
+    required this.payableInterest,
     required this.isTamil,
   });
 
   final double lent;
   final double borrowed;
-  final double overdue;
+  final double receivableInterest;
+  final double payableInterest;
   final bool isTamil;
 
   String _tr(String ta, String en) => isTamil ? ta : en;
@@ -2004,7 +2040,10 @@ class _BalanceHero extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  _money(context, lent - borrowed),
+                  _money(
+                    context,
+                    lent + receivableInterest - borrowed - payableInterest,
+                  ),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 32,
@@ -2020,11 +2059,11 @@ class _BalanceHero extends StatelessWidget {
                 children: [
                   _HeroStat(
                     label: _tr('பெற வேண்டியது', 'To receive'),
-                    value: _money(context, lent),
+                    value: _money(context, lent + receivableInterest),
                   ),
                   _HeroStat(
                     label: _tr('செலுத்த வேண்டியது', 'To pay'),
-                    value: _money(context, borrowed + overdue),
+                    value: _money(context, borrowed + payableInterest),
                   ),
                 ],
               ),
@@ -2545,7 +2584,8 @@ class _PremiumLoanCard extends StatelessWidget {
                         ? _tr('கடன் தேதி', 'Loan date')
                         : _tr('மாத வட்டி', 'Monthly interest'),
                     value: interestFree
-                        ? DateFormat('d MMM yyyy').format(loan.startDate)
+                        ? DateFormat('d MMM yyyy', isTamil ? 'ta' : 'en')
+                            .format(loan.startDate)
                         : _money(context, loan.monthlyInterest),
                   ),
                 ),
@@ -3955,7 +3995,7 @@ List<_PaymentEntry> _paymentEntries(List<Loan> loans) {
   return entries;
 }
 
-List<_MonthReport> _monthlyInterest(List<Loan> loans) {
+List<_MonthReport> _monthlyInterest(List<Loan> loans, bool isTamil) {
   final now = DateTime.now();
   return List.generate(6, (index) {
     final date = DateTime(now.year, now.month - 5 + index);
@@ -3974,7 +4014,7 @@ List<_MonthReport> _monthlyInterest(List<Loan> loans) {
       }
     }
     return _MonthReport(
-      label: DateFormat('MMM').format(date),
+      label: DateFormat('MMM', isTamil ? 'ta' : 'en').format(date),
       earned: earned,
       paid: paid,
     );
