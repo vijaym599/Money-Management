@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:kadan_kanakku/app_services.dart';
+import 'package:kadan_kanakku/emi_models.dart';
 import 'package:kadan_kanakku/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -110,6 +111,8 @@ void main() {
 
     expect(find.text('இன்னும் கடன் இல்லை'), findsOneWidget);
     await tester.tap(find.text('புதிய கடன்'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('சாதாரண கடன்'));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextFormField).at(0), 'அருண்');
@@ -223,6 +226,8 @@ void main() {
     await tester.tap(
       find.widgetWithText(FloatingActionButton, 'புதிய கடன்'),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('சாதாரண கடன்'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'முருகன்');
     await tester.enterText(find.byType(TextFormField).at(1), '5000');
@@ -517,6 +522,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('முக்கிய தேதிகள்'), findsOneWidget);
     expect(find.text('மாதாந்திர வட்டி கணக்கு'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('creates, stores and lists an EMI loan', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const KadanKanakkuApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'New loan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('EMI loan'));
+    await tester.pumpAndSettle();
+
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'Arun');
+    await tester.enterText(fields.at(1), '9876543210');
+    await tester.enterText(fields.at(2), '100000');
+    final saveButton = find.widgetWithText(FilledButton, 'Save EMI loan');
+    tester.widget<FilledButton>(saveButton).onPressed!();
+    await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
+
+    expect(find.text('EMI summary'), findsOneWidget);
+    final stored = jsonDecode(secureData[SecureDataStore.emiLoansKey]!) as List;
+    final loan = EmiLoan.fromJson(
+      Map<String, Object?>.from(stored.single as Map),
+    );
+    expect(loan.person, 'Arun');
+    expect(loan.principal, 100000);
+    expect(loan.tenureMonths, 12);
+    expect(loan.monthlyEmi, greaterThan(0));
+
+    await tester.tap(find.text('Loans'));
+    await tester.pumpAndSettle();
+    final filterScroller = find.byWidgetPredicate(
+      (widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal,
+    );
+    await tester.drag(filterScroller.first, const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('EMI').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Arun'), findsOneWidget);
+    expect(find.text('Monthly EMI'), findsOneWidget);
+
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   });

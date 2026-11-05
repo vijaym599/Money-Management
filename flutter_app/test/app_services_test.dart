@@ -2,6 +2,7 @@ import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kadan_kanakku/app_services.dart';
+import 'package:kadan_kanakku/emi_models.dart';
 import 'package:kadan_kanakku/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -61,6 +62,52 @@ void main() {
     expect(value, '[{"id":"saving"}]');
     expect(secureData[SecureDataStore.savingsKey], value);
     expect(preferences.getString(SecureDataStore.savingsKey), isNull);
+  });
+
+  test('EMI JSON migrates from preferences to encrypted storage', () async {
+    SharedPreferences.setMockInitialValues({
+      SecureDataStore.emiLoansKey: '[{"id":"emi"}]',
+    });
+    final preferences = await SharedPreferences.getInstance();
+
+    final value = await SecureDataStore.instance.readEmiLoans(preferences);
+
+    expect(value, '[{"id":"emi"}]');
+    expect(secureData[SecureDataStore.emiLoansKey], value);
+    expect(preferences.getString(SecureDataStore.emiLoansKey), isNull);
+  });
+
+  test('Tamil and English EMI statement generates a valid PDF', () async {
+    final loan = EmiLoan(
+      id: 'pdf-emi-loan',
+      direction: 'taken',
+      person: 'முருகன்',
+      phone: '9876543210',
+      principal: 100000,
+      rate: 1,
+      tenureMonths: 12,
+      startDate: DateTime(2026, 1, 1),
+      firstDueDate: DateTime(2026, 2, 1),
+      interestMethod: 'reducing',
+      note: '',
+      payments: [
+        EmiPayment(
+          id: 'pdf-emi-payment',
+          amount: 8884.88,
+          date: DateTime(2026, 2, 1),
+          installmentNumber: 1,
+        ),
+      ],
+    );
+
+    for (final isTamil in [true, false]) {
+      final bytes = await PdfStatementService.instance.buildEmi(
+        loan: loan,
+        isTamil: isTamil,
+      );
+      expect(bytes.length, greaterThan(1000));
+      expect(bytes.sublist(0, 4), [0x25, 0x50, 0x44, 0x46]);
+    }
   });
 
   test('Tamil and English loan statement generates a valid PDF', () async {

@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'amount_privacy.dart';
+import 'emi_models.dart';
 import 'models.dart';
 
 part 'savings_page.dart';
@@ -101,6 +102,7 @@ class PremiumSplash extends StatelessWidget {
 class PremiumAppShell extends StatefulWidget {
   const PremiumAppShell({
     required this.loans,
+    required this.emiLoans,
     required this.savings,
     required this.isTamil,
     required this.darkMode,
@@ -111,12 +113,18 @@ class PremiumAppShell extends StatefulWidget {
     required this.selectedPage,
     required this.onPageChanged,
     required this.onAddLoan,
+    required this.onAddEmiLoan,
     required this.onEditLoan,
     required this.onPayment,
+    required this.onEmiPayment,
     required this.onEditPhone,
     required this.onSharePdf,
+    required this.onEmiSharePdf,
     required this.onClose,
+    required this.onEmiClose,
     required this.onDelete,
+    required this.onEmiDelete,
+    required this.onEmiDetails,
     required this.onAddSavings,
     required this.onEditSavings,
     required this.onDeleteSavings,
@@ -136,6 +144,7 @@ class PremiumAppShell extends StatefulWidget {
   });
 
   final List<Loan> loans;
+  final List<EmiLoan> emiLoans;
   final List<SavingsEntry> savings;
   final bool isTamil;
   final bool darkMode;
@@ -146,12 +155,18 @@ class PremiumAppShell extends StatefulWidget {
   final int selectedPage;
   final ValueChanged<int> onPageChanged;
   final VoidCallback onAddLoan;
+  final VoidCallback onAddEmiLoan;
   final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
+  final ValueChanged<EmiLoan> onEmiPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
+  final ValueChanged<EmiLoan> onEmiSharePdf;
   final ValueChanged<Loan> onClose;
+  final ValueChanged<EmiLoan> onEmiClose;
   final ValueChanged<Loan> onDelete;
+  final ValueChanged<EmiLoan> onEmiDelete;
+  final void Function(BuildContext context, EmiLoan loan) onEmiDetails;
   final VoidCallback onAddSavings;
   final ValueChanged<SavingsEntry> onEditSavings;
   final ValueChanged<SavingsEntry> onDeleteSavings;
@@ -226,9 +241,68 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     if (_navigationTarget == page) _navigationTarget = null;
   }
 
+  Future<void> _chooseLoanType() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _tr('கடன் வகையைத் தேர்ந்தெடுக்கவும்', 'Choose loan type'),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: _softBlue,
+                  child: Icon(Icons.receipt_long_outlined, color: _brandBlue),
+                ),
+                title: Text(_tr('சாதாரண கடன்', 'Regular loan')),
+                subtitle: Text(_tr(
+                  'மாத வட்டி மற்றும் முதல்தொகை பதிவுகள்',
+                  'Monthly interest and principal tracking',
+                )),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.pop(sheetContext, 'regular'),
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: _softBlue,
+                  child: Icon(Icons.event_repeat_rounded, color: _brandBlue),
+                ),
+                title: Text(_tr('EMI கடன்', 'EMI loan')),
+                subtitle: Text(_tr(
+                  'மாத தவணை, வட்டி மற்றும் அட்டவணை',
+                  'Monthly instalments, interest and schedule',
+                )),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.pop(sheetContext, 'emi'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'emi') {
+      widget.onAddEmiLoan();
+    } else {
+      widget.onAddLoan();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final loans = widget.loans;
+    final emiLoans = widget.emiLoans;
     final savings = widget.savings;
     final activeLoans = loans.where((loan) => !loan.isClosed).toList();
     final isTamil = widget.isTamil;
@@ -238,12 +312,18 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final profileImageBase64 = widget.profileImageBase64;
     final loadError = widget.loadError;
     final onAddLoan = widget.onAddLoan;
+    final onAddEmiLoan = widget.onAddEmiLoan;
     final onEditLoan = widget.onEditLoan;
     final onPayment = widget.onPayment;
+    final onEmiPayment = widget.onEmiPayment;
     final onEditPhone = widget.onEditPhone;
     final onSharePdf = widget.onSharePdf;
+    final onEmiSharePdf = widget.onEmiSharePdf;
     final onClose = widget.onClose;
+    final onEmiClose = widget.onEmiClose;
     final onDelete = widget.onDelete;
+    final onEmiDelete = widget.onEmiDelete;
+    final onEmiDetails = widget.onEmiDetails;
     final onAddSavings = widget.onAddSavings;
     final onEditSavings = widget.onEditSavings;
     final onDeleteSavings = widget.onDeleteSavings;
@@ -262,6 +342,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final pages = <Widget>[
       _DashboardPage(
         loans: activeLoans,
+        emiLoans: emiLoans.where((loan) => !loan.isClosed).toList(),
         savingsTotal:
             savings.fold<double>(0, (sum, entry) => sum + entry.amount),
         isTamil: isTamil,
@@ -279,15 +360,22 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
       ),
       _LoansPage(
         loans: loans,
+        emiLoans: emiLoans,
         isTamil: isTamil,
         onAddLoan: onAddLoan,
+        onAddEmiLoan: onAddEmiLoan,
         onEditLoan: onEditLoan,
         onPayment: onPayment,
+        onEmiPayment: onEmiPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
+        onEmiSharePdf: onEmiSharePdf,
         onClose: onClose,
+        onEmiClose: onEmiClose,
         onDelete: onDelete,
+        onEmiDelete: onEmiDelete,
         onDetails: onDetails,
+        onEmiDetails: onEmiDetails,
       ),
       _PeoplePage(
         loans: activeLoans,
@@ -360,21 +448,22 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
               ],
             ),
           ),
-          floatingActionButton:
-              _currentPage == 0 || _currentPage == 1 || _currentPage == 3
-                  ? FloatingActionButton.extended(
-                      onPressed: _currentPage == 3 ? onAddSavings : onAddLoan,
-                      tooltip: _currentPage == 3
-                          ? _tr('சேமிப்பைச் சேர்', 'Add savings')
-                          : _tr('புதிய கடன்', 'New loan'),
-                      icon: const Icon(Icons.add_rounded),
-                      label: Text(
-                        _currentPage == 3
-                            ? _tr('சேமிப்பைச் சேர்', 'Add savings')
-                            : _tr('புதிய கடன்', 'New loan'),
-                      ),
-                    )
-                  : null,
+          floatingActionButton: _currentPage == 0 ||
+                  _currentPage == 1 ||
+                  _currentPage == 3
+              ? FloatingActionButton.extended(
+                  onPressed: _currentPage == 3 ? onAddSavings : _chooseLoanType,
+                  tooltip: _currentPage == 3
+                      ? _tr('சேமிப்பைச் சேர்', 'Add savings')
+                      : _tr('புதிய கடன்', 'New loan'),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(
+                    _currentPage == 3
+                        ? _tr('சேமிப்பைச் சேர்', 'Add savings')
+                        : _tr('புதிய கடன்', 'New loan'),
+                  ),
+                )
+              : null,
           bottomNavigationBar: useRail
               ? null
               : _PremiumNavigationBar(
@@ -391,6 +480,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
 class _DashboardPage extends StatelessWidget {
   const _DashboardPage({
     required this.loans,
+    required this.emiLoans,
     required this.savingsTotal,
     required this.isTamil,
     required this.profileName,
@@ -407,6 +497,7 @@ class _DashboardPage extends StatelessWidget {
   });
 
   final List<Loan> loans;
+  final List<EmiLoan> emiLoans;
   final double savingsTotal;
   final bool isTamil;
   final String profileName;
@@ -539,6 +630,10 @@ class _DashboardPage extends StatelessWidget {
               ),
             ],
           ),
+          if (emiLoans.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _EmiDashboardCard(emiLoans: emiLoans, isTamil: isTamil),
+          ],
           if (nextDue != null) ...[
             const SizedBox(height: 16),
             _NextDueCard(
@@ -617,27 +712,41 @@ class _DashboardPage extends StatelessWidget {
 class _LoansPage extends StatefulWidget {
   const _LoansPage({
     required this.loans,
+    required this.emiLoans,
     required this.isTamil,
     required this.onAddLoan,
+    required this.onAddEmiLoan,
     required this.onEditLoan,
     required this.onPayment,
+    required this.onEmiPayment,
     required this.onEditPhone,
     required this.onSharePdf,
+    required this.onEmiSharePdf,
     required this.onClose,
+    required this.onEmiClose,
     required this.onDelete,
+    required this.onEmiDelete,
     required this.onDetails,
+    required this.onEmiDetails,
   });
 
   final List<Loan> loans;
+  final List<EmiLoan> emiLoans;
   final bool isTamil;
   final VoidCallback onAddLoan;
+  final VoidCallback onAddEmiLoan;
   final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
+  final ValueChanged<EmiLoan> onEmiPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
+  final ValueChanged<EmiLoan> onEmiSharePdf;
   final ValueChanged<Loan> onClose;
+  final ValueChanged<EmiLoan> onEmiClose;
   final ValueChanged<Loan> onDelete;
+  final ValueChanged<EmiLoan> onEmiDelete;
   final void Function(BuildContext, Loan) onDetails;
+  final void Function(BuildContext, EmiLoan) onEmiDetails;
 
   @override
   State<_LoansPage> createState() => _LoansPageState();
@@ -665,12 +774,18 @@ class _LoansPageState extends State<_LoansPage>
         'interest_free' =>
           !loan.isClosed && loan.direction == 'given' && loan.rate == 0,
         'closed' => loan.isClosed,
+        'emi' => false,
         _ => !loan.isClosed,
       };
       final queryMatches =
           loan.person.toLowerCase().contains(_query.toLowerCase());
       return directionMatches && queryMatches;
     }).toList();
+    final emiShown = widget.emiLoans
+        .where(
+          (loan) => loan.person.toLowerCase().contains(_query.toLowerCase()),
+        )
+        .toList();
 
     return _PageScroll(
       storageId: 'loans',
@@ -723,6 +838,11 @@ class _LoansPageState extends State<_LoansPage>
                   icon: const Icon(Icons.favorite_outline_rounded),
                 ),
                 ButtonSegment(
+                  value: 'emi',
+                  label: Text(_tr('EMI', 'EMI')),
+                  icon: const Icon(Icons.event_repeat_rounded),
+                ),
+                ButtonSegment(
                   value: 'closed',
                   label: Text(_tr('மூடப்பட்டது', 'Closed')),
                   icon: const Icon(Icons.inventory_2_outlined),
@@ -738,7 +858,33 @@ class _LoansPageState extends State<_LoansPage>
             _InterestFreeSummary(loans: shown, isTamil: widget.isTamil),
             const SizedBox(height: 16),
           ],
-          if (shown.isEmpty)
+          if (_filter == 'emi') ...[
+            if (emiShown.isEmpty)
+              _PremiumEmptyState(
+                title: widget.emiLoans.isEmpty
+                    ? _tr('இன்னும் EMI கடன் இல்லை', 'No EMI loans yet')
+                    : _tr('பொருத்தமான EMI கடன் இல்லை', 'No matching EMI loans'),
+                subtitle: widget.emiLoans.isEmpty
+                    ? _tr('புதிய EMI கடனைச் சேர்க்கவும்.',
+                        'Add a new EMI loan to begin.')
+                    : _tr('தேடலை மாற்றவும்.', 'Try changing the search.'),
+                actionLabel: widget.emiLoans.isEmpty
+                    ? _tr('புதிய EMI கடன்', 'New EMI loan')
+                    : null,
+                onAction: widget.emiLoans.isEmpty ? widget.onAddEmiLoan : null,
+              )
+            else
+              for (final loan in emiShown)
+                _EmiLoanCard(
+                  loan: loan,
+                  isTamil: widget.isTamil,
+                  onPayment: () => widget.onEmiPayment(loan),
+                  onSharePdf: () => widget.onEmiSharePdf(loan),
+                  onDetails: () => widget.onEmiDetails(context, loan),
+                  onClose: () => widget.onEmiClose(loan),
+                  onDelete: () => widget.onEmiDelete(loan),
+                ),
+          ] else if (shown.isEmpty)
             _PremiumEmptyState(
               title: widget.loans.isEmpty
                   ? _tr('இன்னும் கடன் இல்லை', 'No loans yet')
@@ -1895,6 +2041,113 @@ class _NotificationButton extends StatelessWidget {
   return best;
 }
 
+class _EmiDashboardCard extends StatelessWidget {
+  const _EmiDashboardCard({
+    required this.emiLoans,
+    required this.isTamil,
+  });
+
+  final List<EmiLoan> emiLoans;
+  final bool isTamil;
+
+  String _tr(String ta, String en) => isTamil ? ta : en;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final active = emiLoans.where((loan) => !loan.isClosed).toList();
+    final totalEmi =
+        active.fold<double>(0, (sum, loan) => sum + loan.monthlyEmi);
+    final collected =
+        emiLoans.fold<double>(0, (sum, loan) => sum + loan.totalPaid);
+    final outstandingPrincipal = active.fold<double>(
+      0,
+      (sum, loan) => sum + loan.outstandingPrincipal,
+    );
+    final interestEarned =
+        emiLoans.fold<double>(0, (sum, loan) => sum + loan.interestPaid);
+    final upcoming = active.fold<double>(
+      0,
+      (sum, loan) => sum + loan.upcomingDue(today: now),
+    );
+    final overdue = active.fold<double>(
+      0,
+      (sum, loan) => sum + loan.overdueAmount(today: now),
+    );
+
+    return _SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _SettingsIcon(icon: Icons.event_repeat_rounded),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _tr('EMI கணக்கு சுருக்கம்', 'EMI summary'),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    Text(
+                      _tr(
+                        '${active.length} செயலில் உள்ள EMI கடன்கள்',
+                        '${active.length} active EMI loans',
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (overdue > .009)
+                _StatusPill(
+                  text: _tr('தாமதம்', 'Overdue'),
+                  color: const Color(0xFFEF5350),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _AnalyticsMetric(
+                label: _tr('மொத்த மாத EMI', 'Total monthly EMI'),
+                value: _money(context, totalEmi),
+                color: _brandBlue,
+              ),
+              _AnalyticsMetric(
+                label: _tr('வசூலான தொகை', 'Collected amount'),
+                value: _money(context, collected),
+                color: _success,
+              ),
+              _AnalyticsMetric(
+                label: _tr('முதல்தொகை நிலுவை', 'Outstanding principal'),
+                value: _money(context, outstandingPrincipal),
+                color: _warning,
+              ),
+              _AnalyticsMetric(
+                label: _tr('வட்டி வருமானம்', 'Interest earned'),
+                value: _money(context, interestEarned),
+                color: _brandBlue,
+              ),
+              _AnalyticsMetric(
+                label: _tr('அடுத்த 30 நாள் தவணை', 'Upcoming dues (30d)'),
+                value: _money(context, upcoming),
+                color: upcoming > .009 ? _warning : _success,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _NextDueCard extends StatelessWidget {
   const _NextDueCard({
     required this.loan,
@@ -2362,6 +2615,287 @@ class _InterestFreeSummary extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmiLoanCard extends StatelessWidget {
+  const _EmiLoanCard({
+    required this.loan,
+    required this.isTamil,
+    required this.onPayment,
+    required this.onSharePdf,
+    required this.onDetails,
+    required this.onClose,
+    required this.onDelete,
+  });
+
+  final EmiLoan loan;
+  final bool isTamil;
+  final VoidCallback onPayment;
+  final VoidCallback onSharePdf;
+  final VoidCallback onDetails;
+  final VoidCallback onClose;
+  final VoidCallback onDelete;
+
+  String _tr(String ta, String en) => isTamil ? ta : en;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final overdue = loan.overdueAmount(today: now);
+    final next = loan.nextUnpaidInstallment;
+    final settled = loan.isSettled;
+    final accent = loan.isClosed
+        ? Theme.of(context).colorScheme.outline
+        : settled
+            ? _success
+            : overdue > .009
+                ? const Color(0xFFEF5350)
+                : _brandBlue;
+    final progress = loan.totalRepayment <= .009
+        ? 0.0
+        : (loan.totalPaid / loan.totalRepayment).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _SurfaceCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 23,
+                  backgroundColor: accent.withValues(alpha: .11),
+                  child: Text(
+                    _initial(loan.person),
+                    style:
+                        TextStyle(color: accent, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      InkWell(
+                        onTap: onDetails,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            loan.person,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${_tr(loan.direction == 'given' ? 'கொடுத்தது' : 'வாங்கியது', loan.direction == 'given' ? 'Lent' : 'Borrowed')}  •  ${loan.tenureMonths} ${_tr('மாதம்', 'months')}  •  ${loan.rate}%',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (loan.phone.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          loan.phone,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: accent,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                _StatusPill(
+                  text: loan.isClosed
+                      ? _tr('மூடப்பட்டது', 'Closed')
+                      : settled
+                          ? _tr('முடிந்தது', 'Settled')
+                          : overdue > .009
+                              ? _tr('தாமதம்', 'Overdue')
+                              : _tr('செயலில்', 'Active'),
+                  color: accent,
+                ),
+                PopupMenuButton<String>(
+                  tooltip: _tr('மேலும்', 'More'),
+                  onSelected: (value) {
+                    if (value == 'pdf') onSharePdf();
+                    if (value == 'close') onClose();
+                    if (value == 'delete') onDelete();
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'pdf',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.picture_as_pdf_outlined),
+                          const SizedBox(width: 9),
+                          Flexible(
+                            child: Text(_tr(
+                                'PDF அறிக்கை பகிர்', 'Share PDF statement')),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!loan.isClosed && loan.canClose())
+                      PopupMenuItem(
+                        value: 'close',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.task_alt_rounded),
+                            const SizedBox(width: 9),
+                            Flexible(
+                              child:
+                                  Text(_tr('EMI கடனை மூடு', 'Close EMI loan')),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (loan.isClosed)
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.delete_outline_rounded),
+                            const SizedBox(width: 9),
+                            Flexible(child: Text(_tr('நீக்கு', 'Delete'))),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 17),
+            Row(
+              children: [
+                Expanded(
+                  child: _LoanAmount(
+                    label: _tr('மாத தவணை', 'Monthly EMI'),
+                    value: _money(context, loan.monthlyEmi),
+                  ),
+                ),
+                Container(
+                  height: 40,
+                  width: 1,
+                  color: Theme.of(context).dividerColor,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _LoanAmount(
+                    label: _tr('முதல்தொகை நிலுவை', 'Outstanding principal'),
+                    value: _money(context, loan.outstandingPrincipal),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 7,
+                backgroundColor: accent.withValues(alpha: .12),
+                color: accent,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _tr(
+                      '${(progress * 100).toStringAsFixed(0)}% செலுத்தப்பட்டது',
+                      '${(progress * 100).toStringAsFixed(0)}% paid',
+                    ),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+                if (next != null)
+                  Text(
+                    _tr(
+                      'அடுத்தது ${DateFormat('d MMM', isTamil ? 'ta' : 'en').format(next.dueDate)}',
+                      'Next ${DateFormat('d MMM', isTamil ? 'ta' : 'en').format(next.dueDate)}',
+                    ),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+              ],
+            ),
+            if (overdue > .009) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF5350).withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _tr(
+                    '${loan.overdueCount(today: now)} தவணைகள் • ${_money(context, overdue)} நிலுவை',
+                    '${loan.overdueCount(today: now)} instalments • ${_money(context, overdue)} overdue',
+                  ),
+                  style: const TextStyle(
+                    color: Color(0xFFDC3C3C),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(
+                  child: loan.isClosed
+                      ? OutlinedButton.icon(
+                          onPressed: null,
+                          icon:
+                              const Icon(Icons.inventory_2_outlined, size: 18),
+                          label: Text(_tr(
+                            'மூடப்பட்ட கணக்கு',
+                            'Closed account',
+                          )),
+                        )
+                      : loan.canClose()
+                          ? FilledButton.icon(
+                              onPressed: onClose,
+                              icon:
+                                  const Icon(Icons.task_alt_rounded, size: 18),
+                              label:
+                                  Text(_tr('EMI கடனை மூடு', 'Close EMI loan')),
+                            )
+                          : FilledButton.icon(
+                              onPressed: onPayment,
+                              icon:
+                                  const Icon(Icons.add_card_rounded, size: 18),
+                              label:
+                                  Text(_tr('தவணை செலுத்து', 'Pay instalment')),
+                            ),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filledTonal(
+                  tooltip: _tr('PDF பகிர்வு', 'Share PDF'),
+                  onPressed: onSharePdf,
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filledTonal(
+                  tooltip: _tr('விவரங்கள்', 'Details'),
+                  onPressed: onDetails,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

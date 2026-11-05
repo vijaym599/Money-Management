@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'emi_models.dart';
 import 'models.dart';
 
 class SecureDataStore {
@@ -24,6 +25,7 @@ class SecureDataStore {
 
   static const loansKey = 'kadan-kanakku-loans-v1';
   static const savingsKey = 'kadan-kanakku-savings-v1';
+  static const emiLoansKey = 'kadan-kanakku-emi-loans-v1';
   static const _pinSaltKey = 'app-lock-pin-salt-v1';
   static const _pinHashKey = 'app-lock-pin-hash-v1';
   static const _biometricKey = 'app-lock-biometric-v1';
@@ -103,6 +105,42 @@ class SecureDataStore {
     } catch (error) {
       debugPrint('Secure savings write unavailable: $error');
       return preferences.setString(savingsKey, value);
+    }
+  }
+
+  Future<String?> readEmiLoans(SharedPreferences preferences) async {
+    try {
+      final encrypted =
+          await _storage.read(key: emiLoansKey).timeout(_platformTimeout);
+      if (encrypted != null) return encrypted;
+
+      final legacy = preferences.getString(emiLoansKey);
+      if (legacy != null) {
+        await _storage
+            .write(key: emiLoansKey, value: legacy)
+            .timeout(_platformTimeout);
+        await preferences.remove(emiLoansKey);
+      }
+      return legacy;
+    } catch (error) {
+      debugPrint('Secure EMI storage read unavailable: $error');
+      return preferences.getString(emiLoansKey);
+    }
+  }
+
+  Future<bool> writeEmiLoans(
+    SharedPreferences preferences,
+    String value,
+  ) async {
+    try {
+      await _storage
+          .write(key: emiLoansKey, value: value)
+          .timeout(_platformTimeout);
+      await preferences.remove(emiLoansKey);
+      return true;
+    } catch (error) {
+      debugPrint('Secure EMI storage write unavailable: $error');
+      return preferences.setString(emiLoansKey, value);
     }
   }
 
@@ -339,6 +377,7 @@ class LoanNotificationService {
     required List<Loan> loans,
     required bool enabled,
     required bool isTamil,
+    List<EmiLoan> emiLoans = const [],
   }) async {
     await initialize();
     if (!_initialized) return;
@@ -401,6 +440,56 @@ class LoanNotificationService {
             }
           }
           cursor = DateTime(cursor.year, cursor.month + 1);
+        }
+      }
+
+      var emiNotificationId = 5000;
+      for (final loan in emiLoans.where(
+        (item) => !item.isClosed && !item.isSettled,
+      )) {
+        for (final installment in loan.schedule) {
+          if (scheduled >= 400) break;
+          final remaining = loan.remainingForInstallment(installment.number);
+          if (remaining <= .009) continue;
+          final due = tz.TZDateTime(
+            tz.local,
+            installment.dueDate.year,
+            installment.dueDate.month,
+            installment.dueDate.day,
+            9,
+          );
+          final reminder = due.subtract(const Duration(days: 1));
+          for (final entry in <(tz.TZDateTime, bool)>[
+            (reminder, true),
+            (due, false),
+          ]) {
+            if (!entry.$1.isAfter(now) || scheduled >= 400) continue;
+            final before = entry.$2;
+            await _plugin.zonedSchedule(
+              id: emiNotificationId++,
+              title: isTamil
+                  ? (before ? 'நாளை EMI தவணை' : 'இன்று EMI தவணை')
+                  : (before ? 'EMI due tomorrow' : 'EMI instalment due today'),
+              body: isTamil
+                  ? '${loan.person} • ${_money(remaining)} EMI செலுத்த வேண்டும்'
+                  : '${loan.person} • ${_money(remaining)} EMI is due',
+              scheduledDate: entry.$1,
+              notificationDetails: const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'emi_due_reminders',
+                  'EMI due reminders',
+                  channelDescription:
+                      'Upcoming and due EMI instalment reminders',
+                  importance: Importance.high,
+                  priority: Priority.high,
+                ),
+                iOS: DarwinNotificationDetails(),
+              ),
+              androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+              payload: 'emi:${loan.id}',
+            );
+            scheduled++;
+          }
         }
       }
     } catch (error) {
@@ -565,6 +654,234 @@ class PdfStatementService {
     return document.save();
   }
 
+  Future<void> shareEmi({
+    required EmiLoan loan,
+    required bool isTamil,
+  }) async {
+    final safeName =
+        loan.person.replaceAll(RegExp(r'[^\w\u0B80-\u0BFF]+'), '_');
+    await Printing.sharePdf(
+      bytes: await buildEmi(loan: loan, isTamil: isTamil),
+      filename: 'LoanTrack-$safeName-EMI-statement.pdf',
+    );
+  }
+
+  Future<Uint8List> buildEmi({
+    required EmiLoan loan,
+    required bool isTamil,
+  }) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoSansTamil.ttf');
+    final font = pw.Font.ttf(fontData);
+    final document = pw.Document(
+      theme: pw.ThemeData.withFont(base: font, bold: font),
+    );
+    final now = DateTime.now();
+    final blue = PdfColor.fromHex('#1769FF');
+    final navy = PdfColor.fromHex('#081B3A');
+    final payments = [...loan.payments]
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    document.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (_) => pw.Container(
+          padding: const pw.EdgeInsets.only(bottom: 12),
+          decoration: pw.BoxDecoration(
+            border: pw.Border(bottom: pw.BorderSide(color: blue, width: 2)),
+          ),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                isTamil ? 'EMI கடன் அறிக்கை' : 'EMI Loan Statement',
+                style: pw.TextStyle(
+                  color: navy,
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(DateFormat('dd-MM-yyyy').format(now)),
+            ],
+          ),
+        ),
+        build: (_) => [
+          pw.SizedBox(height: 18),
+          pw.Text(
+            loan.person,
+            style: pw.TextStyle(
+              color: blue,
+              fontSize: 18,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          if (loan.phone.isNotEmpty) pw.Text(loan.phone),
+          pw.SizedBox(height: 16),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300),
+            children: [
+              _emiPdfRow(
+                isTamil ? 'கடன் வகை' : 'Loan type',
+                loan.direction == 'given'
+                    ? (isTamil ? 'கொடுத்தது' : 'Lent')
+                    : (isTamil ? 'வாங்கியது' : 'Borrowed'),
+              ),
+              _emiPdfRow(
+                isTamil ? 'வட்டி முறை' : 'Interest method',
+                loan.isReducing
+                    ? (isTamil ? 'குறையும் இருப்பு' : 'Reducing balance')
+                    : (isTamil ? 'நிலையான வட்டி' : 'Flat interest'),
+              ),
+              _emiPdfRow(
+                isTamil ? 'முதல்தொகை' : 'Principal',
+                _money(loan.principal),
+              ),
+              _emiPdfRow(
+                isTamil ? 'மாத வட்டி' : 'Monthly rate',
+                '${loan.rate}%',
+              ),
+              _emiPdfRow(
+                isTamil ? 'கால அளவு' : 'Tenure',
+                isTamil
+                    ? '${loan.tenureMonths} மாதங்கள்'
+                    : '${loan.tenureMonths} months',
+              ),
+              _emiPdfRow(
+                isTamil ? 'மாத EMI' : 'Monthly EMI',
+                _money(loan.monthlyEmi),
+              ),
+              _emiPdfRow(
+                isTamil ? 'மொத்த வட்டி' : 'Total interest',
+                _money(loan.totalInterest),
+              ),
+              _emiPdfRow(
+                isTamil ? 'மொத்த திருப்பிச் செலுத்தல்' : 'Total repayment',
+                _money(loan.totalRepayment),
+              ),
+              _emiPdfRow(
+                isTamil ? 'செலுத்தியது' : 'Collected',
+                _money(loan.totalPaid),
+              ),
+              _emiPdfRow(
+                isTamil ? 'முதல்தொகை நிலுவை' : 'Outstanding principal',
+                _money(loan.outstandingPrincipal),
+              ),
+              _emiPdfRow(
+                isTamil ? 'மொத்த நிலுவை' : 'Outstanding balance',
+                _money(loan.outstandingBalance),
+              ),
+              _emiPdfRow(
+                isTamil ? 'முதல் தவணை தேதி' : 'First EMI due date',
+                DateFormat('dd-MM-yyyy').format(loan.firstDueDate),
+              ),
+              if (loan.closedAt != null)
+                _emiPdfRow(
+                  isTamil ? 'மூடிய தேதி' : 'Closed on',
+                  DateFormat('dd-MM-yyyy').format(loan.closedAt!),
+                ),
+            ],
+          ),
+          pw.SizedBox(height: 22),
+          pw.Text(
+            isTamil ? 'EMI தவணை அட்டவணை' : 'EMI repayment schedule',
+            style: const pw.TextStyle(
+              fontSize: 15,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headers: isTamil
+                ? ['தவணை', 'தேதி', 'EMI', 'முதல்', 'வட்டி', 'நிலுவை', 'நிலை']
+                : [
+                    'No.',
+                    'Due date',
+                    'EMI',
+                    'Principal',
+                    'Interest',
+                    'Balance',
+                    'Status'
+                  ],
+            data: loan.schedule.map((item) {
+              final status = loan.statusFor(item.number, today: now);
+              return [
+                '${item.number}',
+                DateFormat('dd-MM-yyyy').format(item.dueDate),
+                _money(item.emi),
+                _money(item.principal),
+                _money(item.interest),
+                _money(loan.remainingForInstallment(item.number)),
+                _emiStatusLabel(status, isTamil),
+              ];
+            }).toList(),
+            headerStyle: const pw.TextStyle(
+              color: PdfColors.white,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            headerDecoration: pw.BoxDecoration(color: navy),
+            cellStyle: const pw.TextStyle(fontSize: 8),
+            cellPadding: const pw.EdgeInsets.all(5),
+          ),
+          if (payments.isNotEmpty) ...[
+            pw.SizedBox(height: 22),
+            pw.Text(
+              isTamil ? 'EMI செலுத்தல் வரலாறு' : 'EMI payment history',
+              style: const pw.TextStyle(
+                fontSize: 15,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.TableHelper.fromTextArray(
+              headers: isTamil
+                  ? ['தேதி', 'தவணை', 'தொகை']
+                  : ['Date', 'Instalment', 'Amount'],
+              data: payments
+                  .map((payment) => [
+                        DateFormat('dd-MM-yyyy').format(payment.date),
+                        '${payment.installmentNumber}',
+                        _money(payment.amount),
+                      ])
+                  .toList(),
+              headerStyle: const pw.TextStyle(
+                color: PdfColors.white,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              headerDecoration: pw.BoxDecoration(color: navy),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.all(6),
+            ),
+          ],
+        ],
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            '${context.pageNumber} / ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+          ),
+        ),
+      ),
+    );
+
+    return document.save();
+  }
+
+  pw.TableRow _emiPdfRow(String label, String value) => pw.TableRow(
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Text(label),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Text(
+              value,
+              style: const pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ],
+      );
+
   pw.Widget _summaryTable(
     Loan loan,
     double overdue,
@@ -641,6 +958,15 @@ class PdfStatementService {
     );
   }
 }
+
+String _emiStatusLabel(EmiInstallmentStatus status, bool isTamil) =>
+    switch (status) {
+      EmiInstallmentStatus.paid => isTamil ? 'செலுத்தியது' : 'Paid',
+      EmiInstallmentStatus.partiallyPaid =>
+        isTamil ? 'பகுதி செலுத்தியது' : 'Partially paid',
+      EmiInstallmentStatus.overdue => isTamil ? 'தாமதம்' : 'Overdue',
+      EmiInstallmentStatus.pending => isTamil ? 'நிலுவை' : 'Pending',
+    };
 
 String _monthLabel(String month, bool isTamil) {
   final parts = month.split('-');
