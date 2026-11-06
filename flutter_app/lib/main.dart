@@ -10,6 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_services.dart';
 import 'amount_privacy.dart';
+import 'collection_detail_page.dart';
+import 'collection_forms.dart';
+import 'collection_models.dart';
 import 'emi_detail_page.dart';
 import 'emi_forms.dart';
 import 'emi_models.dart';
@@ -74,6 +77,8 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   final _amountVisibility = ValueNotifier<bool>(true);
   final _loansListenable = ValueNotifier<List<Loan>>(const []);
   final _emiLoansListenable = ValueNotifier<List<EmiLoan>>(const []);
+  final _collectionLoansListenable =
+      ValueNotifier<List<CollectionLoan>>(const []);
   bool _loading = true;
   bool _darkMode = false;
   bool _notificationsEnabled = false;
@@ -89,6 +94,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   String? _loadError;
   List<Loan> _loans = [];
   List<EmiLoan> _emiLoans = [];
+  List<CollectionLoan> _collectionLoans = [];
   List<SavingsEntry> _savings = [];
   int _selectedPage = 0;
   String? _pendingNotificationLoanId;
@@ -113,6 +119,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     _amountVisibility.dispose();
     _loansListenable.dispose();
     _emiLoansListenable.dispose();
+    _collectionLoansListenable.dispose();
     super.dispose();
   }
 
@@ -138,6 +145,28 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   void _openPendingNotificationLoan() {
     final loanId = _pendingNotificationLoanId;
     if (loanId == null || _loading || _locked) return;
+    if (loanId.startsWith('collection:')) {
+      final id = loanId.substring(11);
+      CollectionLoan? found;
+      for (final item in _collectionLoans) {
+        if (item.id == id) {
+          found = item;
+          break;
+        }
+      }
+      if (found == null) return;
+      final loan = found;
+      _pendingNotificationLoanId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_locked) {
+          _pendingNotificationLoanId = 'collection:${loan.id}';
+          return;
+        }
+        _openCollectionDetails(loan);
+      });
+      return;
+    }
     if (loanId.startsWith('emi:')) {
       final id = loanId.substring(4);
       EmiLoan? found;
@@ -201,6 +230,20 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     );
   }
 
+  void _openCollectionDetails(CollectionLoan loan) {
+    showCollectionDetailsPage(
+      _appContext,
+      loan: loan,
+      collectionLoansListenable: _collectionLoansListenable,
+      isTamil: _isTamil,
+      onPayment: () => _addCollectionPayment(loan),
+      onSharePdf: () => _shareCollectionPdf(loan),
+      onDeletePayment: (payment) => _deleteCollectionPayment(loan, payment),
+      onSettle: () => _settleCollectionLoan(loan),
+      onDelete: () => _deleteCollectionLoan(loan),
+    );
+  }
+
   Future<void> _load() async {
     try {
       await initializeDateFormatting();
@@ -240,6 +283,20 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         }
         return EmiLoan.fromJson(Map<String, Object?>.from(item));
       }).toList();
+      final rawCollectionLoans =
+          await SecureDataStore.instance.readCollectionLoans(preferences);
+      final decodedCollectionLoans = rawCollectionLoans == null
+          ? <Object?>[]
+          : jsonDecode(rawCollectionLoans);
+      if (decodedCollectionLoans is! List) {
+        throw const FormatException('Saved collection loans are not a list.');
+      }
+      final collectionLoans = decodedCollectionLoans.map((item) {
+        if (item is! Map) {
+          throw const FormatException('Invalid collection loan record.');
+        }
+        return CollectionLoan.fromJson(Map<String, Object?>.from(item));
+      }).toList();
       final appLockEnabled = await SecureDataStore.instance.hasPin(preferences);
       final biometricEnabled = appLockEnabled &&
           await SecureDataStore.instance.biometricEnabled(preferences);
@@ -249,6 +306,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       setState(() {
         _loans = loans;
         _emiLoans = emiLoans;
+        _collectionLoans = collectionLoans;
         _savings = savings;
         _language = preferences.getString(_languageKey) == 'ta' ? 'ta' : 'en';
         _darkMode = preferences.getBool(_themeKey) ?? false;
@@ -263,9 +321,11 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       });
       _loansListenable.value = loans;
       _emiLoansListenable.value = emiLoans;
+      _collectionLoansListenable.value = collectionLoans;
       unawaited(_initializeDeviceServices(
         loans: loans,
         emiLoans: emiLoans,
+        collectionLoans: collectionLoans,
         notificationsEnabled: notificationsEnabled,
         biometricEnabled: biometricEnabled,
       ));
@@ -285,6 +345,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   Future<void> _initializeDeviceServices({
     required List<Loan> loans,
     required List<EmiLoan> emiLoans,
+    required List<CollectionLoan> collectionLoans,
     required bool notificationsEnabled,
     required bool biometricEnabled,
   }) async {
@@ -296,6 +357,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     unawaited(LoanNotificationService.instance.sync(
       loans: loans,
       emiLoans: emiLoans,
+      collectionLoans: collectionLoans,
       enabled: notificationsEnabled,
       isTamil: _isTamil,
     ));
@@ -337,6 +399,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       await LoanNotificationService.instance.sync(
         loans: loans,
         emiLoans: _emiLoans,
+        collectionLoans: _collectionLoans,
         enabled: _notificationsEnabled,
         isTamil: _isTamil,
       );
@@ -361,6 +424,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       await LoanNotificationService.instance.sync(
         loans: _loans,
         emiLoans: emiLoans,
+        collectionLoans: _collectionLoans,
         enabled: _notificationsEnabled,
         isTamil: _isTamil,
       );
@@ -370,6 +434,35 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       _message(_tr(
         'EMI கடன் விவரங்களை சேமிக்க முடியவில்லை.',
         'Could not save the EMI loan data.',
+      ));
+    }
+    return false;
+  }
+
+  Future<bool> _saveCollectionLoans(
+    List<CollectionLoan> collectionLoans,
+  ) async {
+    final json =
+        jsonEncode(collectionLoans.map((loan) => loan.toJson()).toList());
+    final preferences = await SharedPreferences.getInstance();
+    if (await SecureDataStore.instance
+            .writeCollectionLoans(preferences, json) &&
+        mounted) {
+      setState(() => _collectionLoans = collectionLoans);
+      _collectionLoansListenable.value = collectionLoans;
+      await LoanNotificationService.instance.sync(
+        loans: _loans,
+        emiLoans: _emiLoans,
+        collectionLoans: collectionLoans,
+        enabled: _notificationsEnabled,
+        isTamil: _isTamil,
+      );
+      return true;
+    }
+    if (mounted) {
+      _message(_tr(
+        'வசூல் கடன் விவரங்களை சேமிக்க முடியவில்லை.',
+        'Could not save the collection loan data.',
       ));
     }
     return false;
@@ -414,6 +507,15 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
       ),
     );
     if (loan != null) await _saveEmiLoans([loan, ..._emiLoans]);
+  }
+
+  Future<void> _addCollectionLoan() async {
+    final loan = await Navigator.of(_appContext).push<CollectionLoan>(
+      MaterialPageRoute(
+        builder: (_) => CollectionLoanFormPage(isTamil: _isTamil),
+      ),
+    );
+    if (loan != null) await _saveCollectionLoans([loan, ..._collectionLoans]);
   }
 
   Future<void> _addSavings() async {
@@ -743,6 +845,145 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     );
   }
 
+  Future<void> _addCollectionPayment(CollectionLoan loan) async {
+    final current = _collectionLoans
+        .where((item) => item.id == loan.id)
+        .fold<CollectionLoan?>(null, (found, item) => item);
+    if (current == null) return;
+    if (current.isClosed) {
+      _message(_tr(
+        'மூடப்பட்ட வசூல் கடனில் புதிய செலுத்தலை பதிவு செய்ய முடியாது.',
+        'Payments cannot be added to a closed collection loan.',
+      ));
+      return;
+    }
+    final payment = await showDialog<CollectionPayment>(
+      context: _appContext,
+      builder: (_) => CollectionPaymentDialog(loan: current, isTamil: _isTamil),
+    );
+    if (payment == null) return;
+    var updated = current.withPayment(payment);
+    final today = DateTime.now();
+    if (updated.settlementOutstanding(today: today) <= collectionTolerance) {
+      updated = updated.close(DateTime(today.year, today.month, today.day));
+    }
+    final saved = await _saveCollectionLoans(
+      _collectionLoans
+          .map((item) => item.id == current.id ? updated : item)
+          .toList(),
+    );
+    if (!saved || !mounted) return;
+    _message(_tr(
+      updated.isClosed
+          ? 'செலுத்தல் பதிவு செய்யப்பட்டது. கடன் முழுமையாக தீர்க்கப்பட்டது.'
+          : 'செலுத்தல் பதிவு செய்யப்பட்டது.',
+      updated.isClosed
+          ? 'Payment recorded. The loan is now fully settled.'
+          : 'Payment recorded.',
+    ));
+  }
+
+  Future<bool> _deleteCollectionPayment(
+    CollectionLoan loan,
+    CollectionPayment payment,
+  ) async {
+    if (loan.isClosed) {
+      _message(_tr(
+        'மூடப்பட்ட வசூல் கடனின் செலுத்தலை நீக்க முடியாது.',
+        'Payments in a closed collection loan cannot be deleted.',
+      ));
+      return false;
+    }
+    final confirmed = await showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('செலுத்தலை நீக்கவா?', 'Delete payment?')),
+        content: Text(_tr(
+          '${loan.person} கணக்கில் உள்ள ${privateMoney(_appContext, payment.amount)} செலுத்தல் நீக்கப்படும். அட்டவணை மீண்டும் கணக்கிடப்படும்.',
+          '${privateMoney(_appContext, payment.amount)} will be removed from ${loan.person}. The schedule will be recalculated.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('நீக்கு', 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+    final updated = _collectionLoans
+        .map((item) =>
+            item.id == loan.id ? item.withoutPayment(payment.id) : item)
+        .toList();
+    final saved = await _saveCollectionLoans(updated);
+    if (saved && mounted) {
+      _message(_tr('செலுத்தல் நீக்கப்பட்டது.', 'Payment deleted.'));
+    }
+    return saved;
+  }
+
+  Future<bool> _settleCollectionLoan(CollectionLoan loan) async {
+    final current = _collectionLoans
+        .where((item) => item.id == loan.id)
+        .fold<CollectionLoan?>(null, (found, item) => item);
+    if (current == null) return false;
+    if (current.isClosed) {
+      _message(_tr(
+          'இந்த கடன் ஏற்கனவே மூடப்பட்டது.', 'This loan is already closed.'));
+      return false;
+    }
+    final amount = current.settlementAmount();
+    if (amount <= collectionTolerance) {
+      _message(_tr('நிலுவை இல்லை.', 'There is no outstanding balance.'));
+      return false;
+    }
+    final confirmed = await showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('முழுமையாக தீர்க்கவா?', 'Settle in full?')),
+        content: Text(_tr(
+          '${current.person} கணக்கில் ${privateMoney(_appContext, amount)} வசூலிக்கப்பட்டு கடன் மூடப்படும்.',
+          '${privateMoney(_appContext, amount)} will be collected from ${current.person} and the loan will be closed.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('தீர்த்து மூடு', 'Settle & close')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+    final now = DateTime.now();
+    final day = DateTime(now.year, now.month, now.day);
+    final settled = current
+        .settle(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          date: day,
+        )
+        .close(day);
+    final saved = await _saveCollectionLoans(
+      _collectionLoans
+          .map((item) => item.id == current.id ? settled : item)
+          .toList(),
+    );
+    if (saved && mounted) {
+      _message(_tr(
+        'கடன் தீர்க்கப்பட்டு மூடப்பட்டது.',
+        'The loan was settled and closed.',
+      ));
+    }
+    return saved;
+  }
+
   Future<bool> _deletePayment(Loan loan, LoanPayment payment) async {
     if (loan.isClosed) {
       _message(_tr(
@@ -952,12 +1193,50 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     }
   }
 
+  Future<bool> _deleteCollectionLoan(CollectionLoan loan) async {
+    if (!loan.isClosed) {
+      _message(_tr(
+        'செயலில் உள்ள வசூல் கடனை நேரடியாக நீக்க முடியாது. முதலில் தீர்த்து கடனை மூடவும்.',
+        'An active collection loan cannot be deleted. Settle and close it first.',
+      ));
+      return false;
+    }
+    final confirmed = await showDialog<bool>(
+      context: _appContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          _tr('மூடப்பட்ட வசூல் கடனை நீக்கவா?',
+              'Delete closed collection loan?'),
+        ),
+        content: Text(_tr(
+          '${loan.person} மற்றும் அதன் வசூல் வரலாறு நீக்கப்படும்.',
+          '${loan.person} and its collection history will be deleted.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_tr('ரத்து', 'Cancel')),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_tr('நீக்கு', 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+    return _saveCollectionLoans(
+      _collectionLoans.where((item) => item.id != loan.id).toList(),
+    );
+  }
+
   Future<void> _changeLanguage(String language) async {
     if (!await _store(_languageKey, language) || !mounted) return;
     setState(() => _language = language);
     await LoanNotificationService.instance.sync(
       loans: _loans,
       emiLoans: _emiLoans,
+      collectionLoans: _collectionLoans,
       enabled: _notificationsEnabled,
       isTamil: language == 'ta',
     );
@@ -1111,6 +1390,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     await LoanNotificationService.instance.sync(
       loans: _loans,
       emiLoans: _emiLoans,
+      collectionLoans: _collectionLoans,
       enabled: next,
       isTamil: _isTamil,
     );
@@ -1156,14 +1436,33 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     }
   }
 
+  Future<void> _shareCollectionPdf(CollectionLoan loan) async {
+    try {
+      await PdfStatementService.instance.shareCollection(
+        loan: loan,
+        isTamil: _isTamil,
+      );
+    } catch (error) {
+      debugPrint('Could not create collection PDF: $error');
+      if (mounted) {
+        _message(_tr(
+          'வசூல் PDF அறிக்கையை உருவாக்க முடியவில்லை.',
+          'Could not create the collection PDF statement.',
+        ));
+      }
+    }
+  }
+
   Future<void> _showBackup() async {
     final controller = TextEditingController(
       text: jsonEncode({
         'format': 'loantrack-backup',
-        'version': 4,
+        'version': 5,
         'exportedAt': DateTime.now().toUtc().toIso8601String(),
         'loans': _loans.map((loan) => loan.toJson()).toList(),
         'emiLoans': _emiLoans.map((loan) => loan.toJson()).toList(),
+        'collectionLoans':
+            _collectionLoans.map((loan) => loan.toJson()).toList(),
         'savings': _savings.map((entry) => entry.toJson()).toList(),
         'profile': {
           'name': _profileName,
@@ -1226,6 +1525,8 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                         ? decoded['loans']
                         : null;
                 final rawEmiLoans = decoded is Map ? decoded['emiLoans'] : null;
+                final rawCollectionLoans =
+                    decoded is Map ? decoded['collectionLoans'] : null;
                 final rawSavings = decoded is Map ? decoded['savings'] : null;
                 final rawProfile = decoded is Map ? decoded['profile'] : null;
                 final rawPreferences =
@@ -1253,6 +1554,20 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                           }).toList()
                         : throw const FormatException(
                             'Backup EMI loans are invalid.');
+                final restoredCollectionLoans = rawCollectionLoans == null
+                    ? _collectionLoans
+                    : rawCollectionLoans is List
+                        ? rawCollectionLoans.map((item) {
+                            if (item is! Map) {
+                              throw const FormatException(
+                                  'Invalid collection loan record.');
+                            }
+                            return CollectionLoan.fromJson(
+                              Map<String, Object?>.from(item),
+                            );
+                          }).toList()
+                        : throw const FormatException(
+                            'Backup collection loans are invalid.');
                 final restoredSavings = rawSavings == null
                     ? _savings
                     : rawSavings is List
@@ -1270,6 +1585,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                 _validateRestoredData(
                   restoredLoans,
                   restoredEmiLoans,
+                  restoredCollectionLoans,
                   restoredSavings,
                 );
                 final restoredProfile = _parseBackupProfile(rawProfile);
@@ -1281,8 +1597,8 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                   builder: (confirmContext) => AlertDialog(
                     title: Text(_tr('தரவை மீட்டமைக்கவா?', 'Restore backup?')),
                     content: Text(_tr(
-                      '${restoredLoans.length} கடன், ${restoredEmiLoans.length} EMI கடன் மற்றும் ${restoredSavings.length} சேமிப்பு பதிவுகள் மீட்டமைக்கப்படும்.',
-                      '${restoredLoans.length} loans, ${restoredEmiLoans.length} EMI loans and ${restoredSavings.length} savings records will be restored.',
+                      '${restoredLoans.length} கடன், ${restoredEmiLoans.length} EMI கடன், ${restoredCollectionLoans.length} வசூல் கடன் மற்றும் ${restoredSavings.length} சேமிப்பு பதிவுகள் மீட்டமைக்கப்படும்.',
+                      '${restoredLoans.length} loans, ${restoredEmiLoans.length} EMI loans, ${restoredCollectionLoans.length} collection loans and ${restoredSavings.length} savings records will be restored.',
                     )),
                     actions: [
                       TextButton(
@@ -1299,8 +1615,15 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                 if (confirmed != true || !dialogContext.mounted) return;
                 final loansSaved = await _saveLoans(restoredLoans);
                 final emiLoansSaved = await _saveEmiLoans(restoredEmiLoans);
+                final collectionLoansSaved =
+                    await _saveCollectionLoans(restoredCollectionLoans);
                 final savingsSaved = await _saveSavings(restoredSavings);
-                if (!loansSaved || !emiLoansSaved || !savingsSaved) return;
+                if (!loansSaved ||
+                    !emiLoansSaved ||
+                    !collectionLoansSaved ||
+                    !savingsSaved) {
+                  return;
+                }
                 await _restoreBackupPreferences(
                   restoredProfile,
                   restoredPreferences,
@@ -1337,10 +1660,12 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
   void _validateRestoredData(
     List<Loan> loans,
     List<EmiLoan> emiLoans,
+    List<CollectionLoan> collectionLoans,
     List<SavingsEntry> savings,
   ) {
     if (loans.length > 10000 ||
         emiLoans.length > 10000 ||
+        collectionLoans.length > 10000 ||
         savings.length > 10000) {
       throw const FormatException('Backup contains too many records.');
     }
@@ -1372,6 +1697,24 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
         if (!emiPaymentIds.add(payment.id)) {
           throw const FormatException(
               'Backup contains duplicate EMI payment IDs.');
+        }
+      }
+    }
+    final collectionLoanIds = <String>{};
+    final collectionPaymentIds = <String>{};
+    for (final loan in collectionLoans) {
+      if (!collectionLoanIds.add(loan.id)) {
+        throw const FormatException(
+            'Backup contains duplicate collection loan IDs.');
+      }
+      if (loan.payments.length > 50000) {
+        throw const FormatException(
+            'A collection loan contains too many payments.');
+      }
+      for (final payment in loan.payments) {
+        if (!collectionPaymentIds.add(payment.id)) {
+          throw const FormatException(
+              'Backup contains duplicate collection payment IDs.');
         }
       }
     }
@@ -1468,6 +1811,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
     await LoanNotificationService.instance.sync(
       loans: _loans,
       emiLoans: _emiLoans,
+      collectionLoans: _collectionLoans,
       enabled: _notificationsEnabled,
       isTamil: _isTamil,
     );
@@ -1624,6 +1968,7 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                   : PremiumAppShell(
                       loans: _loans,
                       emiLoans: _emiLoans,
+                      collectionLoans: _collectionLoans,
                       savings: _savings,
                       isTamil: _isTamil,
                       darkMode: _darkMode,
@@ -1636,17 +1981,24 @@ class _KadanKanakkuAppState extends State<KadanKanakkuApp>
                           setState(() => _selectedPage = page),
                       onAddLoan: _addLoan,
                       onAddEmiLoan: _addEmiLoan,
+                      onAddCollectionLoan: _addCollectionLoan,
                       onEditLoan: _editLoan,
                       onPayment: _addPayment,
                       onEmiPayment: _addEmiPayment,
+                      onCollectionPayment: _addCollectionPayment,
                       onEditPhone: _editLoanPhone,
                       onSharePdf: _shareLoanPdf,
                       onEmiSharePdf: _shareEmiPdf,
+                      onCollectionSharePdf: _shareCollectionPdf,
                       onClose: _closeLoan,
                       onEmiClose: _closeEmiLoan,
+                      onCollectionSettle: _settleCollectionLoan,
+                      onCollectionDelete: _deleteCollectionLoan,
                       onDelete: _deleteLoan,
                       onEmiDelete: _deleteEmiLoan,
                       onEmiDetails: (_, loan) => _openEmiDetails(loan),
+                      onCollectionDetails: (_, loan) =>
+                          _openCollectionDetails(loan),
                       onAddSavings: _addSavings,
                       onEditSavings: _editSavings,
                       onDeleteSavings: _deleteSavings,

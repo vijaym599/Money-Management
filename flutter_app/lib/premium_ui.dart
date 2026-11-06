@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'amount_privacy.dart';
+import 'collection_models.dart';
 import 'emi_models.dart';
 import 'models.dart';
 
@@ -103,6 +104,7 @@ class PremiumAppShell extends StatefulWidget {
   const PremiumAppShell({
     required this.loans,
     required this.emiLoans,
+    required this.collectionLoans,
     required this.savings,
     required this.isTamil,
     required this.darkMode,
@@ -114,17 +116,23 @@ class PremiumAppShell extends StatefulWidget {
     required this.onPageChanged,
     required this.onAddLoan,
     required this.onAddEmiLoan,
+    required this.onAddCollectionLoan,
     required this.onEditLoan,
     required this.onPayment,
     required this.onEmiPayment,
+    required this.onCollectionPayment,
     required this.onEditPhone,
     required this.onSharePdf,
     required this.onEmiSharePdf,
+    required this.onCollectionSharePdf,
     required this.onClose,
     required this.onEmiClose,
+    required this.onCollectionSettle,
+    required this.onCollectionDelete,
     required this.onDelete,
     required this.onEmiDelete,
     required this.onEmiDetails,
+    required this.onCollectionDetails,
     required this.onAddSavings,
     required this.onEditSavings,
     required this.onDeleteSavings,
@@ -145,6 +153,7 @@ class PremiumAppShell extends StatefulWidget {
 
   final List<Loan> loans;
   final List<EmiLoan> emiLoans;
+  final List<CollectionLoan> collectionLoans;
   final List<SavingsEntry> savings;
   final bool isTamil;
   final bool darkMode;
@@ -156,17 +165,24 @@ class PremiumAppShell extends StatefulWidget {
   final ValueChanged<int> onPageChanged;
   final VoidCallback onAddLoan;
   final VoidCallback onAddEmiLoan;
+  final VoidCallback onAddCollectionLoan;
   final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<EmiLoan> onEmiPayment;
+  final ValueChanged<CollectionLoan> onCollectionPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
   final ValueChanged<EmiLoan> onEmiSharePdf;
+  final ValueChanged<CollectionLoan> onCollectionSharePdf;
   final ValueChanged<Loan> onClose;
   final ValueChanged<EmiLoan> onEmiClose;
+  final ValueChanged<CollectionLoan> onCollectionSettle;
+  final ValueChanged<CollectionLoan> onCollectionDelete;
   final ValueChanged<Loan> onDelete;
   final ValueChanged<EmiLoan> onEmiDelete;
   final void Function(BuildContext context, EmiLoan loan) onEmiDetails;
+  final void Function(BuildContext context, CollectionLoan loan)
+      onCollectionDetails;
   final VoidCallback onAddSavings;
   final ValueChanged<SavingsEntry> onEditSavings;
   final ValueChanged<SavingsEntry> onDeleteSavings;
@@ -245,8 +261,9 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -286,6 +303,22 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => Navigator.pop(sheetContext, 'emi'),
               ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: _softBlue,
+                  child: Icon(Icons.autorenew_rounded, color: _brandBlue),
+                ),
+                title: Text(_tr(
+                  'வார/மாத வட்டி வசூல்',
+                  'Weekly / monthly collection',
+                )),
+                subtitle: Text(_tr(
+                  'வட்டி மட்டும் அல்லது வார/மாத EMI',
+                  'Interest only or weekly / monthly EMI',
+                )),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.pop(sheetContext, 'collection'),
+              ),
             ],
           ),
         ),
@@ -294,6 +327,8 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     if (!mounted || choice == null) return;
     if (choice == 'emi') {
       widget.onAddEmiLoan();
+    } else if (choice == 'collection') {
+      widget.onAddCollectionLoan();
     } else {
       widget.onAddLoan();
     }
@@ -303,6 +338,7 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
   Widget build(BuildContext context) {
     final loans = widget.loans;
     final emiLoans = widget.emiLoans;
+    final collectionLoans = widget.collectionLoans;
     final savings = widget.savings;
     final activeLoans = loans.where((loan) => !loan.isClosed).toList();
     final isTamil = widget.isTamil;
@@ -313,17 +349,23 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
     final loadError = widget.loadError;
     final onAddLoan = widget.onAddLoan;
     final onAddEmiLoan = widget.onAddEmiLoan;
+    final onAddCollectionLoan = widget.onAddCollectionLoan;
     final onEditLoan = widget.onEditLoan;
     final onPayment = widget.onPayment;
     final onEmiPayment = widget.onEmiPayment;
+    final onCollectionPayment = widget.onCollectionPayment;
     final onEditPhone = widget.onEditPhone;
     final onSharePdf = widget.onSharePdf;
     final onEmiSharePdf = widget.onEmiSharePdf;
+    final onCollectionSharePdf = widget.onCollectionSharePdf;
     final onClose = widget.onClose;
     final onEmiClose = widget.onEmiClose;
+    final onCollectionSettle = widget.onCollectionSettle;
+    final onCollectionDelete = widget.onCollectionDelete;
     final onDelete = widget.onDelete;
     final onEmiDelete = widget.onEmiDelete;
     final onEmiDetails = widget.onEmiDetails;
+    final onCollectionDetails = widget.onCollectionDetails;
     final onAddSavings = widget.onAddSavings;
     final onEditSavings = widget.onEditSavings;
     final onDeleteSavings = widget.onDeleteSavings;
@@ -343,6 +385,8 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
       _DashboardPage(
         loans: activeLoans,
         emiLoans: emiLoans.where((loan) => !loan.isClosed).toList(),
+        collectionLoans:
+            collectionLoans.where((loan) => !loan.isClosed).toList(),
         savingsTotal:
             savings.fold<double>(0, (sum, entry) => sum + entry.amount),
         isTamil: isTamil,
@@ -361,21 +405,28 @@ class _PremiumAppShellState extends State<PremiumAppShell> {
       _LoansPage(
         loans: loans,
         emiLoans: emiLoans,
+        collectionLoans: collectionLoans,
         isTamil: isTamil,
         onAddLoan: onAddLoan,
         onAddEmiLoan: onAddEmiLoan,
+        onAddCollectionLoan: onAddCollectionLoan,
         onEditLoan: onEditLoan,
         onPayment: onPayment,
         onEmiPayment: onEmiPayment,
+        onCollectionPayment: onCollectionPayment,
         onEditPhone: onEditPhone,
         onSharePdf: onSharePdf,
         onEmiSharePdf: onEmiSharePdf,
+        onCollectionSharePdf: onCollectionSharePdf,
         onClose: onClose,
         onEmiClose: onEmiClose,
+        onCollectionSettle: onCollectionSettle,
+        onCollectionDelete: onCollectionDelete,
         onDelete: onDelete,
         onEmiDelete: onEmiDelete,
         onDetails: onDetails,
         onEmiDetails: onEmiDetails,
+        onCollectionDetails: onCollectionDetails,
       ),
       _PeoplePage(
         loans: activeLoans,
@@ -481,6 +532,7 @@ class _DashboardPage extends StatelessWidget {
   const _DashboardPage({
     required this.loans,
     required this.emiLoans,
+    required this.collectionLoans,
     required this.savingsTotal,
     required this.isTamil,
     required this.profileName,
@@ -498,6 +550,7 @@ class _DashboardPage extends StatelessWidget {
 
   final List<Loan> loans;
   final List<EmiLoan> emiLoans;
+  final List<CollectionLoan> collectionLoans;
   final double savingsTotal;
   final bool isTamil;
   final String profileName;
@@ -634,6 +687,14 @@ class _DashboardPage extends StatelessWidget {
             const SizedBox(height: 16),
             _EmiDashboardCard(emiLoans: emiLoans, isTamil: isTamil),
           ],
+          if (collectionLoans.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _CollectionDashboardCard(
+              collectionLoans: collectionLoans,
+              isTamil: isTamil,
+              onOpen: onOpenLoans,
+            ),
+          ],
           if (nextDue != null) ...[
             const SizedBox(height: 16),
             _NextDueCard(
@@ -713,40 +774,54 @@ class _LoansPage extends StatefulWidget {
   const _LoansPage({
     required this.loans,
     required this.emiLoans,
+    required this.collectionLoans,
     required this.isTamil,
     required this.onAddLoan,
     required this.onAddEmiLoan,
+    required this.onAddCollectionLoan,
     required this.onEditLoan,
     required this.onPayment,
     required this.onEmiPayment,
+    required this.onCollectionPayment,
     required this.onEditPhone,
     required this.onSharePdf,
     required this.onEmiSharePdf,
+    required this.onCollectionSharePdf,
     required this.onClose,
     required this.onEmiClose,
+    required this.onCollectionSettle,
+    required this.onCollectionDelete,
     required this.onDelete,
     required this.onEmiDelete,
     required this.onDetails,
     required this.onEmiDetails,
+    required this.onCollectionDetails,
   });
 
   final List<Loan> loans;
   final List<EmiLoan> emiLoans;
+  final List<CollectionLoan> collectionLoans;
   final bool isTamil;
   final VoidCallback onAddLoan;
   final VoidCallback onAddEmiLoan;
+  final VoidCallback onAddCollectionLoan;
   final ValueChanged<Loan> onEditLoan;
   final ValueChanged<Loan> onPayment;
   final ValueChanged<EmiLoan> onEmiPayment;
+  final ValueChanged<CollectionLoan> onCollectionPayment;
   final ValueChanged<Loan> onEditPhone;
   final ValueChanged<Loan> onSharePdf;
   final ValueChanged<EmiLoan> onEmiSharePdf;
+  final ValueChanged<CollectionLoan> onCollectionSharePdf;
   final ValueChanged<Loan> onClose;
   final ValueChanged<EmiLoan> onEmiClose;
+  final ValueChanged<CollectionLoan> onCollectionSettle;
+  final ValueChanged<CollectionLoan> onCollectionDelete;
   final ValueChanged<Loan> onDelete;
   final ValueChanged<EmiLoan> onEmiDelete;
   final void Function(BuildContext, Loan) onDetails;
   final void Function(BuildContext, EmiLoan) onEmiDetails;
+  final void Function(BuildContext, CollectionLoan) onCollectionDetails;
 
   @override
   State<_LoansPage> createState() => _LoansPageState();
@@ -765,8 +840,12 @@ class _LoansPageState extends State<_LoansPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final activeCount = widget.loans.where((loan) => !loan.isClosed).length;
-    final closedCount = widget.loans.length - activeCount;
+    final activeCount = widget.loans.where((loan) => !loan.isClosed).length +
+        widget.emiLoans.where((loan) => !loan.isClosed).length +
+        widget.collectionLoans.where((loan) => !loan.isClosed).length;
+    final closedCount = widget.loans.where((loan) => loan.isClosed).length +
+        widget.emiLoans.where((loan) => loan.isClosed).length +
+        widget.collectionLoans.where((loan) => loan.isClosed).length;
     final shown = widget.loans.where((loan) {
       final directionMatches = switch (_filter) {
         'given' => !loan.isClosed && loan.direction == 'given' && loan.rate > 0,
@@ -775,6 +854,7 @@ class _LoansPageState extends State<_LoansPage>
           !loan.isClosed && loan.direction == 'given' && loan.rate == 0,
         'closed' => loan.isClosed,
         'emi' => false,
+        'collection' => false,
         _ => !loan.isClosed,
       };
       final queryMatches =
@@ -782,6 +862,11 @@ class _LoansPageState extends State<_LoansPage>
       return directionMatches && queryMatches;
     }).toList();
     final emiShown = widget.emiLoans
+        .where(
+          (loan) => loan.person.toLowerCase().contains(_query.toLowerCase()),
+        )
+        .toList();
+    final collectionShown = widget.collectionLoans
         .where(
           (loan) => loan.person.toLowerCase().contains(_query.toLowerCase()),
         )
@@ -847,6 +932,11 @@ class _LoansPageState extends State<_LoansPage>
                   label: Text(_tr('மூடப்பட்டது', 'Closed')),
                   icon: const Icon(Icons.inventory_2_outlined),
                 ),
+                ButtonSegment(
+                  value: 'collection',
+                  label: Text(_tr('வசூல்', 'Collection')),
+                  icon: const Icon(Icons.autorenew_rounded),
+                ),
               ],
               selected: {_filter},
               onSelectionChanged: (value) =>
@@ -883,6 +973,37 @@ class _LoansPageState extends State<_LoansPage>
                   onDetails: () => widget.onEmiDetails(context, loan),
                   onClose: () => widget.onEmiClose(loan),
                   onDelete: () => widget.onEmiDelete(loan),
+                ),
+          ] else if (_filter == 'collection') ...[
+            if (collectionShown.isEmpty)
+              _PremiumEmptyState(
+                title: widget.collectionLoans.isEmpty
+                    ? _tr('இன்னும் வசூல் கடன் இல்லை', 'No collection loans yet')
+                    : _tr('பொருத்தமான வசூல் கடன் இல்லை',
+                        'No matching collection loans'),
+                subtitle: widget.collectionLoans.isEmpty
+                    ? _tr(
+                        'வார/மாத வட்டி அல்லது வார/மாத EMI வசூலைத் தொடங்குங்கள்.',
+                        'Start a weekly or monthly interest or EMI collection.',
+                      )
+                    : _tr('தேடலை மாற்றவும்.', 'Try changing the search.'),
+                actionLabel: widget.collectionLoans.isEmpty
+                    ? _tr('புதிய வசூல் கடன்', 'New collection loan')
+                    : null,
+                onAction: widget.collectionLoans.isEmpty
+                    ? widget.onAddCollectionLoan
+                    : null,
+              )
+            else
+              for (final loan in collectionShown)
+                _CollectionLoanCard(
+                  loan: loan,
+                  isTamil: widget.isTamil,
+                  onPayment: () => widget.onCollectionPayment(loan),
+                  onSharePdf: () => widget.onCollectionSharePdf(loan),
+                  onDetails: () => widget.onCollectionDetails(context, loan),
+                  onSettle: () => widget.onCollectionSettle(loan),
+                  onDelete: () => widget.onCollectionDelete(loan),
                 ),
           ] else if (shown.isEmpty)
             _PremiumEmptyState(
@@ -4762,4 +4883,329 @@ String _money(BuildContext context, double value) =>
 String _initial(String value) {
   final text = value.trim();
   return text.isEmpty ? '?' : text.characters.first;
+}
+
+String _collectionTypeText(CollectionLoan loan, bool isTamil) {
+  if (loan.isEmi) {
+    if (loan.isWeekly) return isTamil ? 'வாராந்திர EMI' : 'Weekly EMI';
+    return isTamil ? 'மாதாந்திர EMI' : 'Monthly EMI';
+  }
+  if (loan.isWeekly) {
+    return isTamil ? 'வாராந்திர வட்டி' : 'Weekly interest';
+  }
+  return isTamil ? 'மாதாந்திர வட்டி' : 'Monthly interest';
+}
+
+class _CollectionDashboardCard extends StatelessWidget {
+  const _CollectionDashboardCard({
+    required this.collectionLoans,
+    required this.isTamil,
+    required this.onOpen,
+  });
+
+  final List<CollectionLoan> collectionLoans;
+  final bool isTamil;
+  final VoidCallback onOpen;
+
+  String _tr(String ta, String en) => isTamil ? ta : en;
+
+  String _money(double value) => NumberFormat.currency(
+        locale: 'en_IN',
+        symbol: '₹',
+        decimalDigits: value % 1 == 0 ? 0 : 2,
+      ).format(value);
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final active = collectionLoans.where((loan) => !loan.isClosed).toList();
+    final overdue = active.fold<double>(
+      0,
+      (sum, loan) => sum + loan.overdueAmount(today: now),
+    );
+    final outstanding = active.fold<double>(
+      0,
+      (sum, loan) => sum + loan.settlementOutstanding(today: now),
+    );
+    DateTime? nextDate;
+    CollectionLoan? nextLoan;
+    for (final loan in active) {
+      final date = loan.nextCollectionDate;
+      if (date == null) continue;
+      if (nextDate == null || date.isBefore(nextDate)) {
+        nextDate = date;
+        nextLoan = loan;
+      }
+    }
+    return _SurfaceCard(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onOpen,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: _softBlue,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(Icons.autorenew_rounded, color: _brandBlue),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _tr('வார/மாத வசூல்', 'Weekly / monthly collection'),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      Text(
+                        _tr(
+                          '${active.length} செயலில் • ${overdue > .009 ? 'தாமதம் ${_money(overdue)}' : 'தாமதம் இல்லை'}',
+                          '${active.length} active • ${overdue > .009 ? '${_money(overdue)} overdue' : 'nothing overdue'}',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _CollectionStat(
+                    label: _tr('மொத்த நிலுவை', 'Outstanding'),
+                    value: _money(outstanding),
+                  ),
+                ),
+                Expanded(
+                  child: _CollectionStat(
+                    label: _tr('அடுத்த வசூல்', 'Next collection'),
+                    value: nextDate == null
+                        ? '—'
+                        : DateFormat('dd MMM').format(nextDate),
+                    caption: nextLoan == null
+                        ? null
+                        : _collectionTypeText(nextLoan, isTamil),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CollectionStat extends StatelessWidget {
+  const _CollectionStat({
+    required this.label,
+    required this.value,
+    this.caption,
+  });
+
+  final String label;
+  final String value;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          if (caption != null)
+            Text(caption!, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
+}
+
+class _CollectionLoanCard extends StatelessWidget {
+  const _CollectionLoanCard({
+    required this.loan,
+    required this.isTamil,
+    required this.onPayment,
+    required this.onSharePdf,
+    required this.onDetails,
+    required this.onSettle,
+    required this.onDelete,
+  });
+
+  final CollectionLoan loan;
+  final bool isTamil;
+  final VoidCallback onPayment;
+  final VoidCallback onSharePdf;
+  final VoidCallback onDetails;
+  final VoidCallback onSettle;
+  final VoidCallback onDelete;
+
+  String _tr(String ta, String en) => isTamil ? ta : en;
+
+  String _money(double value) => NumberFormat.currency(
+        locale: 'en_IN',
+        symbol: '₹',
+        decimalDigits: value % 1 == 0 ? 0 : 2,
+      ).format(value);
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final overdue = loan.overdueAmount(today: now);
+    final next = loan.nextUnpaidPeriod;
+    final isGiven = loan.direction == 'given';
+    final accent = loan.isClosed
+        ? Theme.of(context).colorScheme.outline
+        : (isGiven ? _brandBlue : _warning);
+    final statusColor = loan.isClosed
+        ? Theme.of(context).colorScheme.outline
+        : (overdue > .009 ? const Color(0xFFEF5350) : _success);
+    return _SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: accent.withValues(alpha: .12),
+                child: Icon(
+                  loan.isClosed
+                      ? Icons.inventory_2_outlined
+                      : (loan.isEmi
+                          ? Icons.event_repeat_rounded
+                          : Icons.autorenew_rounded),
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      loan.person,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      _tr(
+                        '${_collectionTypeText(loan, isTamil)} • ${isGiven ? 'கொடுத்தது' : 'வாங்கியது'}',
+                        '${_collectionTypeText(loan, isTamil)} • ${isGiven ? 'Lent' : 'Borrowed'}',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _StatusPill(
+                text: loan.isClosed
+                    ? _tr('மூடப்பட்டது', 'Closed')
+                    : overdue > .009
+                        ? _tr('தாமதம்', 'Overdue')
+                        : _tr('செயலில்', 'Active'),
+                color: statusColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _LoanAmount(
+                  label: _tr('முதல்தொகை', 'Principal'),
+                  value: _money(loan.principal),
+                ),
+              ),
+              Expanded(
+                child: _LoanAmount(
+                  label: _tr('வசூலித்தது', 'Collected'),
+                  value: _money(loan.totalCollected),
+                ),
+              ),
+              Expanded(
+                child: _LoanAmount(
+                  label: _tr('நிலுவை', 'Outstanding'),
+                  value: _money(loan.settlementOutstanding(today: now)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.event_available_rounded, size: 18, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  loan.isClosed
+                      ? _tr(
+                          'மூடப்பட்டது ${DateFormat('dd MMM yyyy').format(loan.closedAt!)}',
+                          'Closed ${DateFormat('dd MMM yyyy').format(loan.closedAt!)}',
+                        )
+                      : next == null
+                          ? _tr('நிலுவை இல்லை', 'Nothing pending')
+                          : _tr(
+                              'அடுத்தது ${DateFormat('dd MMM').format(next.dueDate)} • ${_money(loan.remainingForPeriod(next.number))}',
+                              'Next ${DateFormat('dd MMM').format(next.dueDate)} • ${_money(loan.remainingForPeriod(next.number))}',
+                            ),
+                ),
+              ),
+              if (!loan.isClosed && loan.isPartialFor(next?.number ?? 1))
+                _StatusPill(
+                  text: _tr('பகுதி', 'Partial'),
+                  color: _warning,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            children: [
+              if (!loan.isClosed)
+                TextButton.icon(
+                  onPressed: onPayment,
+                  icon: const Icon(Icons.payments_outlined, size: 18),
+                  label: Text(_tr('வசூல்', 'Collect')),
+                ),
+              IconButton(
+                tooltip: _tr('விவரங்கள்', 'Details'),
+                onPressed: onDetails,
+                icon: const Icon(Icons.visibility_outlined),
+              ),
+              IconButton(
+                tooltip: _tr('PDF', 'PDF'),
+                onPressed: onSharePdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+              ),
+              if (!loan.isClosed)
+                IconButton(
+                  tooltip: _tr('தீர்த்து மூடு', 'Settle & close'),
+                  onPressed: onSettle,
+                  icon: const Icon(Icons.done_all_rounded),
+                ),
+              if (loan.isClosed)
+                IconButton(
+                  tooltip: _tr('நீக்கு', 'Delete'),
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
